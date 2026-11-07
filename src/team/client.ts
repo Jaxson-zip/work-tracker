@@ -1,21 +1,66 @@
 import { supabase } from "../supabase";
 import type { TeamSnapshot } from "./types";
+
 export const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_WORK_TRACKER_DEMO === "1";
-let demoUserId = "11111111-1111-4111-8111-111111111111";
-export function setDemoUser(id: string) { demoUserId = id; }
+export const demoPeople = [
+  { id: "11111111-1111-4111-8111-111111111111", name: "林晓" },
+  { id: "22222222-2222-4222-8222-222222222222", name: "陈晨" },
+  { id: "33333333-3333-4333-8333-333333333333", name: "周宁" },
+];
+let demoUserId = demoPeople[0].id;
+export function setDemoUser(id: string) {
+  demoUserId = id;
+}
+
+// 数据库错误是给开发者看的英文，这里转成用户能看懂的话。
+const friendlyErrors: [RegExp, string][] = [
+  [/Version conflict/, "别人刚改过这件事，请刷新后再试"],
+  [/Reason required/, "请填写原因"],
+  [/Handoff pending/, "这件事正在等待对方接收，请先撤回转交"],
+  [/Only the receiver/, "只有接收人可以接收或退回"],
+  [/No pending handoff|No returned handoff/, "这件事的状态已经变了，请刷新"],
+  [/Already the owner/, "对方已经是负责人了"],
+  [/Owner must be/, "负责人必须是团队成员"],
+  [/No open tasks/, "没有可以转出的未完成事项"],
+  [/Reassign open tasks/, "请先把这位成员的未完成事项转给别人"],
+  [/Reassign to an active member/, "原负责人已离开，请先转给别人"],
+  [/Workspace owner is protected/, "不能修改团队所有者"],
+  [/Invalid or expired invite/, "邀请码无效或已过期"],
+  [/Already a member/, "你已经是这个团队的成员了"],
+  [/Invalid mobile/, "手机号格式不正确"],
+  [/Invalid title|Invalid name|Invalid displayName/, "名称不能为空，也不能太长"],
+  [/Record already converted/, "这条记录已经转成待办了"],
+  [/Invalid transition/, "当前状态不能做这个操作"],
+  [/Forbidden/, "你没有权限做这个操作"],
+  [/Task not found|Record not found|Member not found/, "内容不存在，可能已被移除"],
+];
+export function errorText(message: string): string {
+  return friendlyErrors.find(([pattern]) => pattern.test(message))?.[1] ?? "操作失败，请稍后再试";
+}
+
+// 通知已在数据库事务里入队。这里只是催一下立即发送，失败了定时任务会补发，不影响用户操作。
+async function flushNotifications() {
+  const { data } = await supabase!.auth.getSession();
+  if (!data.session) return;
+  await fetch("/api/notify/flush", { method: "POST", headers: { authorization: `Bearer ${data.session.access_token}` } });
+}
+
 export async function teamCommand<T = Record<string, unknown>>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   if (demoEnabled) {
-    const response = await fetch("/__demo/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: demoUserId, action, payload }) });
+    const response = await fetch("/__demo/command", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId: demoUserId, action, payload }),
+    });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "本地演示数据库请求失败");
+    if (!response.ok) throw new Error(errorText(data.error ?? ""));
     return data as T;
   }
-  if (!supabase) throw new Error("请先配置独立 Supabase 项目并执行数据库迁移。");
+  if (!supabase) throw new Error("服务尚未配置");
   const { data, error } = await supabase.rpc("wt_command", { p_action: action, p_payload: payload });
-  if (error) {
-    if (error.code === "PGRST202" || error.code === "42883") throw new Error("团队数据库尚未初始化，请执行 supabase/migrations 中的 SQL。");
-    throw new Error(error.message);
-  }
+  if (error) throw new Error(errorText(error.message));
+  if (action !== "snapshot") void flushNotifications().catch(() => undefined);
   return data as T;
 }
+
 export const fetchTeamSnapshot = (workspaceId?: string) => teamCommand<TeamSnapshot>("snapshot", { workspaceId });

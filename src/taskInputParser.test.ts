@@ -62,22 +62,8 @@ describe("parseTaskInput", () => {
     const parsed = cases.map((value) => parseTaskInput(value, baseDate, { rollPastTime: false }));
 
     expect(parsed.map((item) => item.title)).toEqual(["打球", "打球", "打球", "打球", "打球", "打球"]);
-    expect(parsed.map((item) => localHourMinute(item.reminderAt))).toEqual([
-      "17:00",
-      "17:00",
-      "17:00",
-      "17:00",
-      "17:30",
-      "20:00",
-    ]);
-    expect(parsed.map((item) => localHourMinute(item.endAt ?? null))).toEqual([
-      "19:00",
-      "19:00",
-      "19:00",
-      "19:00",
-      "19:30",
-      "21:00",
-    ]);
+    expect(parsed.map((item) => localHourMinute(item.reminderAt))).toEqual(["17:00", "17:00", "17:00", "17:00", "17:30", "20:00"]);
+    expect(parsed.map((item) => localHourMinute(item.endAt ?? null))).toEqual(["19:00", "19:00", "19:00", "19:00", "19:30", "21:00"]);
   });
 
   it("still parses clear hour inputs for work tasks", () => {

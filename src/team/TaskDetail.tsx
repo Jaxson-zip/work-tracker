@@ -1,33 +1,219 @@
-import { useState } from "react";
-import { availableTransitions } from "./logic";
-import { editableTaskPayload, type Execute } from "./TaskForms";
-import { statusLabels, type Member, type TaskActivity, type TeamRole, type TeamTask } from "./types";
-const actionLabels: Record<string, string> = { created: "创建任务", create_task: "创建任务", updated: "更新任务", update_task: "更新任务", transfer: "转交任务", transition: "变更状态", comment: "跟进记录", record_to_task: "记录转待办" };
-export default function TaskDetail({ task, members, activities, userId, role, execute, busy, onClose, onReload }: { task: TeamTask; members: Member[]; activities: TaskActivity[]; userId: string; role: TeamRole; execute: Execute; busy: boolean; onClose: () => void; onReload: () => void }) {
-  const [draft, setDraft] = useState(() => editableTaskPayload(task)); const [version] = useState(task.version);
-  const [reason, setReason] = useState(""); const [ownerId, setOwnerId] = useState(task.owner_id); const [comment, setComment] = useState("");
-  const canEdit = role !== "member" || task.owner_id === userId || task.created_by === userId;
-  const stale = version !== task.version;
-  const memberName = (id: string) => members.find(m => m.user_id === id)?.display_name ?? "已离开成员";
-  const base = { taskId: task.id, expectedVersion: version };
-  return <aside className="work-detail" aria-label="任务详情"><div className="detail-top"><span className={`status-badge status-${task.status}`}>{statusLabels[task.status]}</span><button type="button" onClick={onClose}>关闭详情</button></div><h2>{task.title}</h2><p className="detail-byline">{memberName(task.owner_id)} 负责 · {memberName(task.created_by)} 创建</p>
-    {stale && <div className="work-banner error" role="alert">其他成员已更新此任务。请先加载最新内容，再操作。<button type="button" onClick={onReload}>加载最新内容</button></div>}
-    <form onSubmit={async e => { e.preventDefault(); await execute("update_task", { ...base, ...draft }); }}><fieldset disabled={busy || !canEdit || stale}>
-      <label>任务标题<input required maxLength={160} value={draft.title} onChange={e => setDraft({ ...draft, title: e.target.value })} /></label><label>事项说明<textarea maxLength={10000} rows={3} value={draft.body} onChange={e => setDraft({ ...draft, body: e.target.value })} /></label><div className="field-grid"><label>截止日期<input type="date" value={draft.dueDate ?? ""} onChange={e => setDraft({ ...draft, dueDate: e.target.value || null })} /></label><label>下次跟进<input type="date" value={draft.followUpDate ?? ""} onChange={e => setDraft({ ...draft, followUpDate: e.target.value || null })} /></label></div><label>优先级<select value={draft.priority} onChange={e => setDraft({ ...draft, priority: e.target.value as TeamTask["priority"] })}><option value="normal">普通</option><option value="high">关键事项</option><option value="low">低</option></select></label><label>下一步动作<input maxLength={1000} value={draft.nextAction} onChange={e => setDraft({ ...draft, nextAction: e.target.value })} placeholder="下一步要做什么？" /></label>{canEdit && <button className="primary" disabled={!draft.title.trim()}>保存任务</button>}</fieldset></form>
-    <section className="detail-section"><h3>推进与流转</h3>{availableTransitions(task, userId, role).length > 0 && <><label>说明 / 受阻或退回原因<textarea rows={2} maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} placeholder="受阻、退回、重新打开及转交时必填" /></label><div className="flow-buttons">{availableTransitions(task, userId, role).map(status => <button key={status} type="button" disabled={busy || stale || ((status === "blocked" || (status === "in_progress" && (task.status === "review" || task.status === "done"))) && !reason.trim())} onClick={() => void execute("transition_task", { ...base, status, reason })}>{status === "in_progress" && task.status === "pending" ? "接单并开始" : status === "review" ? "提交验收" : status === "done" ? "验收通过" : status === "blocked" ? "标记受阻" : task.status === "review" ? "退回继续推进" : "继续推进"}</button>)}</div></>}
-      {canEdit && <div className="transfer-fields"><label>转交负责人<select value={ownerId} onChange={e => setOwnerId(e.target.value)}>{!members.some(m => m.user_id === task.owner_id) && <option value={task.owner_id}>原负责人已离开，请重新指派</option>}{members.map(m => <option key={m.user_id} value={m.user_id}>{m.display_name}</option>)}</select></label>{availableTransitions(task, userId, role).length === 0 && <label>转交原因<input maxLength={1000} value={reason} onChange={e => setReason(e.target.value)} /></label>}<button type="button" disabled={busy || stale || ownerId === task.owner_id || !reason.trim()} onClick={() => void execute("transfer_task", { ...base, ownerId, reason })}>确认转交</button></div>}
-      {!canEdit && availableTransitions(task, userId, role).length === 0 && <p className="secondary">你可以查看与补充跟进记录，当前任务由负责人推进。</p>}
-    </section>
-    <section className="detail-section"><h3>跟进记录与操作历史</h3><form onSubmit={async e => { e.preventDefault(); if ((await execute("comment_task", { taskId: task.id, comment: comment.trim() })).ok) setComment(""); }}><label>补充跟进记录<textarea rows={2} maxLength={1000} value={comment} onChange={e => setComment(e.target.value)} placeholder="进展、沟通结果或需要协助的内容" /></label><button type="submit" disabled={busy || !comment.trim()}>添加跟进</button></form><ol className="activity-list">{activities.filter(a => a.task_id === task.id).map(a => <li key={a.id}><span className="activity-dot" /><div><strong>{memberName(a.actor_id)}</strong> {actionLabels[a.action] ?? a.action}<p>{formatDetail(a.detail, memberName)}</p><time>{new Date(a.created_at).toLocaleString("zh-CN")}</time></div></li>)}</ol></section>
-  </aside>;
-}
-function formatDetail(detail: Record<string, unknown>, name: (id: string) => string): string {
+import { X } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { dueLabel, isOpen } from "./logic";
+import TaskActions from "./TaskActions";
+import { memberName } from "./TaskRow";
+import { statusLabels, type Member, type TaskActivity, type TeamTask, type WorkContext } from "./types";
+
+const actionLabels: Record<string, string> = {
+  created: "创建了事项",
+  updated: "修改了内容",
+  transition: "变更状态",
+  comment: "补充跟进",
+  handoff: "发起转交",
+  handoff_accepted: "接收了转交",
+  handoff_rejected: "退回了转交",
+  handoff_withdrawn: "撤回了转交",
+  return_ack: "确认了退回",
+};
+
+function describe({ action, detail }: TaskActivity, members: Member[]): string {
   const parts: string[] = [];
-  if (detail.to || detail.status || detail.to_status) { const value = String(detail.to ?? detail.status ?? detail.to_status); parts.push(`状态：${statusLabels[value as keyof typeof statusLabels] ?? value}`); }
-  for (const key of ["reason", "comment", "message", "text"]) if (typeof detail[key] === "string") parts.push(String(detail[key]));
-  if (typeof detail.owner_id === "string") parts.push(`负责人：${name(detail.owner_id)}`);
-  if (typeof detail.to_owner_id === "string") parts.push(`负责人：${name(detail.to_owner_id)}`);
-  if (typeof detail.from_owner === "string" && typeof detail.to_owner === "string") parts.push(`${name(detail.from_owner)} → ${name(detail.to_owner)}`);
-  return parts.join(" · ");
+  if (action === "handoff" && typeof detail.to_owner === "string") parts.push(`转给 ${memberName(members, detail.to_owner)}`);
+  if (typeof detail.to === "string") parts.push(statusLabels[detail.to as keyof typeof statusLabels] ?? "");
+  for (const key of ["reason", "comment"]) if (typeof detail[key] === "string" && detail[key]) parts.push(String(detail[key]));
+  return parts.filter(Boolean).join(" · ");
 }
 
+function EditForm({ task, ctx, onDone }: { task: TeamTask; ctx: WorkContext; onDone: () => void }) {
+  const [title, setTitle] = useState(task.title);
+  const [body, setBody] = useState(task.body);
+  const [dueDate, setDueDate] = useState(task.due_date ?? "");
+  const [followUpDate, setFollowUpDate] = useState(task.follow_up_date ?? "");
+  const [nextAction, setNextAction] = useState(task.next_action);
+  const [priority, setPriority] = useState(task.priority);
+  const [baseVersion] = useState(task.version);
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const result = await ctx.execute("update_task", {
+      taskId: task.id,
+      expectedVersion: baseVersion,
+      title: title.trim(),
+      body,
+      dueDate: dueDate || null,
+      followUpDate: followUpDate || null,
+      nextAction,
+      priority,
+    });
+    if (result.ok) onDone();
+  }
+  return (
+    <form className="form-stack" onSubmit={(event) => void submit(event)}>
+      {baseVersion !== task.version && (
+        <p className="form-error" role="alert">
+          别人刚改过这件事。取消后重新打开，能看到最新内容。
+        </p>
+      )}
+      <label>
+        标题
+        <input required maxLength={160} value={title} onChange={(e) => setTitle(e.target.value)} />
+      </label>
+      <label>
+        说明
+        <textarea rows={3} maxLength={10000} value={body} onChange={(e) => setBody(e.target.value)} />
+      </label>
+      <label>
+        下一步
+        <input maxLength={1000} value={nextAction} onChange={(e) => setNextAction(e.target.value)} placeholder="接下来具体要做什么" />
+      </label>
+      <div className="field-row">
+        <label>
+          截止日期
+          <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </label>
+        <label>
+          下次跟进
+          <input type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
+        </label>
+      </div>
+      <label>
+        重要程度
+        <select value={priority} onChange={(e) => setPriority(e.target.value as TeamTask["priority"])}>
+          <option value="normal">普通</option>
+          <option value="high">关键事项</option>
+          <option value="low">低</option>
+        </select>
+      </label>
+      <div className="dialog-actions">
+        <button type="button" onClick={onDone}>
+          取消
+        </button>
+        <button className="primary" disabled={ctx.busy || !title.trim() || baseVersion !== task.version}>
+          保存
+        </button>
+      </div>
+    </form>
+  );
+}
+
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="fact">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+export default function TaskDetail({
+  task,
+  activities,
+  ctx,
+  onClose,
+}: {
+  task: TeamTask;
+  activities: TaskActivity[];
+  ctx: WorkContext;
+  onClose: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [comment, setComment] = useState("");
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const canEdit = ctx.role !== "member" || task.owner_id === ctx.userId || task.created_by === ctx.userId;
+  const due = task.due_date ? dueLabel(task.due_date, ctx.today) : null;
+  const history = activities.filter((activity) => activity.task_id === task.id).reverse();
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.querySelector("dialog[open]")) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  async function addComment(event: FormEvent) {
+    event.preventDefault();
+    if ((await ctx.execute("comment_task", { taskId: task.id, comment: comment.trim() })).ok) setComment("");
+  }
+  return (
+    <>
+      <div className="drawer-scrim" onClick={onClose} />
+      <aside className="drawer" aria-label="事项详情">
+        <div className="drawer-top">
+          <span className={`tag status-${task.status}`}>{statusLabels[task.status]}</span>
+          <button ref={closeRef} type="button" className="icon-button" aria-label="关闭" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        {editing ? (
+          <EditForm task={task} ctx={ctx} onDone={() => setEditing(false)} />
+        ) : (
+          <>
+            <h2 className="drawer-title">{task.title}</h2>
+            {task.pending_owner_id && (
+              <p className="callout">
+                等 {memberName(ctx.members, task.pending_owner_id)} 接收{task.handoff_note ? `：${task.handoff_note}` : ""}
+              </p>
+            )}
+            {task.returned_to && (
+              <p className="callout callout-danger">
+                {memberName(ctx.members, task.returned_by)} 退回：{task.returned_note}
+              </p>
+            )}
+            <TaskActions task={task} ctx={ctx} scope="detail" />
+            {task.next_action && (
+              <p className="next-action">
+                <span className="muted">下一步</span>
+                {task.next_action}
+              </p>
+            )}
+            <dl className="facts">
+              <Fact label="负责人">{memberName(ctx.members, task.owner_id)}</Fact>
+              <Fact label="发起人">{memberName(ctx.members, task.created_by)}</Fact>
+              <Fact label="截止">
+                {due ? <span className={due.overdue && isOpen(task) ? "text-danger" : undefined}>{task.due_date}</span> : "未设置"}
+              </Fact>
+              <Fact label="跟进">{task.follow_up_date ?? "未设置"}</Fact>
+            </dl>
+            {task.body && <p className="task-body">{task.body}</p>}
+            {canEdit && (
+              <button type="button" className="link" onClick={() => setEditing(true)}>
+                编辑内容和日期
+              </button>
+            )}
+          </>
+        )}
+        <section className="drawer-section">
+          <h3>跟进和经过</h3>
+          <form className="comment-form" onSubmit={(event) => void addComment(event)}>
+            <input
+              aria-label="补充跟进"
+              maxLength={2000}
+              placeholder="补充进展或沟通结果"
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+            />
+            <button disabled={ctx.busy || !comment.trim()}>添加</button>
+          </form>
+          <ol className="timeline">
+            {history.map((item) => (
+              <li key={item.id}>
+                <div>
+                  <strong>{memberName(ctx.members, item.actor_id)}</strong> {actionLabels[item.action] ?? item.action}
+                </div>
+                {describe(item, ctx.members) && <p>{describe(item, ctx.members)}</p>}
+                <time>
+                  {new Date(item.created_at).toLocaleString("zh-CN", {
+                    month: "numeric",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </li>
+            ))}
+          </ol>
+        </section>
+      </aside>
+    </>
+  );
+}

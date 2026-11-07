@@ -1,6 +1,6 @@
 {
-  "name": "推进事务台",
-  "short_name": "推进事务台",
+  "name": "推进",
+  "short_name": "推进",
   "description": "记录事务、明确负责人、跟进并推进关键事项。",
   "start_url": "/",
   "scope": "/",
