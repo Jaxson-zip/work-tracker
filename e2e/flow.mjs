@@ -45,6 +45,7 @@ function helpers(page) {
   return {
     row,
     flow,
+    preview: page.getByRole("status", { name: "群消息预览" }),
     group: (name) => page.getByRole("region", { name }),
     as: async (name) => {
       const button = page.getByRole("group", { name: "切换演示身份" }).getByRole("button", { name });
@@ -78,12 +79,22 @@ async function writeAndHand(page, h) {
   ok(row.includes("到期") && !row.includes("下周五") && row.includes("自己写的"), "一句话写待办：日期自动识别，显示自己写的");
   ok((await h.flow.locator("h1").innerText()) === TITLE, "写完右边直接显示这一条的流转");
   ok((await h.row(TITLE).getByRole("button").count()) === 0, "我手上的行里不放按钮，操作都在右边");
+  ok((await h.preview.count()) === 0, "只记给自己的事不发群消息");
 
   await h.press("做完了，交给下一位");
   await h.send({ person: "陈晨", note: "退款页面做完了，需要后端提供退款接口" });
   await h.row(TITLE).getByText("等陈晨接手").waitFor();
   ok((await h.group("我交出去的").innerText()).includes(TITLE), "交出去后显示等对方接手");
   ok((await h.flow.getByLabel("交接链").innerText()).includes("等接手"), "交接链上标出等接手的人");
+  ok((await page.locator(".notice").innerText()).includes("已交给陈晨"), "交出去后有确认提示");
+  ok((await h.flow.locator(".flow-source").innerText()).includes("自己写的"), "自己写的事交出去后，来源还是自己写的");
+  const sent = await h.preview.innerText();
+  ok(
+    sent.includes("【待接手】林晓") && sent.includes("退款页面做完了") && sent.includes("@陈晨"),
+    "交接后能看到发到群里的消息，并 @ 接手人",
+  );
+  await h.preview.getByRole("button", { name: "知道了" }).click();
+  ok((await h.preview.count()) === 0, "群消息预览可以关掉");
 }
 
 async function rejectAndRetry(page, h) {
@@ -91,7 +102,13 @@ async function rejectAndRetry(page, h) {
   ok((await h.group("等我接手").innerText()).includes("退款页面做完了"), "接手人收到时能看到交接说明");
   await h.row(TITLE).getByRole("button", { name: "退回", exact: true }).click();
   await h.send({ note: "字段还没定，请先确认退款状态枚举" });
+  const rejected = await h.preview.innerText();
+  ok(
+    rejected.includes("【被退回】陈晨") && rejected.includes("字段还没定") && rejected.includes("@林晓"),
+    "退回的原因也发到群里，并 @ 原来的人",
+  );
   await h.as("林晓");
+  ok((await h.preview.count()) === 0, "切换身份后不留上一个人的群消息预览");
   await h.group("我手上").getByText("字段还没定").waitFor();
   ok(true, "被退回后回到原来的人手上，并显示原因");
   await h.open(TITLE);
@@ -105,6 +122,7 @@ async function relayToDone(page, h) {
   await h.row(TITLE).getByRole("button", { name: "接手", exact: true }).click();
   await h.group("我手上").getByText(TITLE).waitFor();
   ok((await h.row(TITLE).innerText()).includes("林晓 交来的"), "接手后到了自己手上，显示谁交来的");
+  ok((await h.preview.innerText()).includes("【已接手】陈晨"), "接手的消息发到群里，交出去的人知道对方收到了");
   await h.open(TITLE);
   await h.press("做完了，交给下一位");
   await h.send({ person: "周宁", note: "接口发到测试环境了，请测试" });
@@ -180,6 +198,13 @@ async function editAndTeam(page, h) {
   await dialog.getByRole("button", { name: "关闭" }).click();
 }
 
+async function acceptFromCard(page, h) {
+  await h.open("整理下周发布清单");
+  await h.row("订单列表接口联调").getByRole("button", { name: "接手", exact: true }).click();
+  await h.group("我手上").getByText("订单列表接口联调").waitFor();
+  ok((await h.flow.locator("h1").innerText()) === "订单列表接口联调", "从卡片接手后，右边切到刚接手的这一条");
+}
+
 async function phone(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 800 } });
   const page = await context.newPage();
@@ -219,6 +244,7 @@ try {
   await page.reload();
   await page.locator(".new-task").waitFor({ timeout: 60000 });
   ok(await page.getByText("整理下周发布清单").isVisible(), "演示版刷新后恢复初始数据");
+  await acceptFromCard(page, h);
   await phone(browser);
   ok(errors.length === 0, `页面没有运行错误 ${errors.join(" | ")}`);
   console.log(`\n全部通过：${passed} 项`);

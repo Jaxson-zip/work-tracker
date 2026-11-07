@@ -71,9 +71,9 @@ export function whereNow(task: TeamTask, members: Member[], userId: string): str
   return `在${name(task.owner_id)}手上`;
 }
 
-// 来源：正在交接时是交出来的人；否则是谁交给现在的负责人的，或者是负责人自己写的。
-export function sourceOf(task: TeamTask, history: TaskActivity[], members: Member[]): string {
-  if (task.pending_owner_id && task.handoff_by) return `${memberName(members, task.handoff_by)} 交来的`;
+// 来源：等我接手时是交给我的人；否则是谁交给现在的负责人的，或者是负责人自己写的。
+export function sourceOf(task: TeamTask, history: TaskActivity[], members: Member[], userId: string): string {
+  if (task.pending_owner_id === userId && task.handoff_by) return `${memberName(members, task.handoff_by)} 交来的`;
   const last = [...history].reverse().find((a) => a.action === "accepted" && a.actor_id === task.owner_id);
   if (last) return `${memberName(members, last.detail.from)} 交来的`;
   if (task.created_by === task.owner_id) return "自己写的";

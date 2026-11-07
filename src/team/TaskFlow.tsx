@@ -114,7 +114,7 @@ export default function TaskFlow({
         </span>
         <h1>{task.title}</h1>
         <span className="flow-source">
-          {sourceOf(task, history, ctx.members)}
+          {sourceOf(task, history, ctx.members, ctx.userId)}
           {due && (
             <>
               {" · "}

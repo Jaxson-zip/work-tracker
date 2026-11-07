@@ -25,7 +25,7 @@ export default function NewTask({ ctx }: { ctx: WorkContext }) {
     setIgnored("");
     setNote("");
     setOwnerId(ctx.userId);
-    ctx.onCreated(String(created.id));
+    ctx.showTask(String(created.id));
   }
 
   return (

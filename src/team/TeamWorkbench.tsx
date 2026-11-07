@@ -9,7 +9,7 @@ import TaskFlow from "./TaskFlow";
 import { MyTasks, TeamTasks } from "./TaskList";
 import TeamDialog from "./TeamDialog";
 import TeamEntry from "./TeamEntry";
-import type { TaskForm, TeamSnapshot, WorkContext } from "./types";
+import type { GroupMessage, TaskForm, TeamSnapshot, WorkContext } from "./types";
 import { useTeamData } from "./useTeamData";
 
 // 和 styles.css 里的单栏断点一致：窄屏上打开流转时回到页面顶部。
@@ -53,6 +53,28 @@ function ViewTabs({ team, onChange }: { team: boolean; onChange: (team: boolean)
   );
 }
 
+// 演示版不真发群消息，把这一步会发的内容显示出来。固定在角落，不挤动页面。
+function GroupMessages({ messages, onDismiss }: { messages: GroupMessage[]; onDismiss: () => void }) {
+  if (messages.length === 0) return null;
+  return (
+    <aside className="group-message" role="status" aria-label="群消息预览">
+      <div className="group-message-head">
+        <strong>这一步会发到群里</strong>
+        <span className="muted">演示版不真发</span>
+        <button type="button" className="link quiet" onClick={onDismiss}>
+          知道了
+        </button>
+      </div>
+      {messages.map((item, index) => (
+        <div key={index} className="group-message-body">
+          <p className="group-message-text">{item.message}</p>
+          <p className="group-message-at">{item.mentions.map((name) => `@${name}`).join(" ")}</p>
+        </div>
+      ))}
+    </aside>
+  );
+}
+
 // 选中哪条、窄屏上显示哪一栏、右边开着哪个表单。
 function useSelection(data: TeamSnapshot, userId: string, teamView: boolean, clearNotice: () => void) {
   const [selection, setSelection] = useState<{ id: string; form: TaskForm } | null>(null);
@@ -72,7 +94,8 @@ function useSelection(data: TeamSnapshot, userId: string, teamView: boolean, cle
       setSelection({ id, form: null });
     },
     setForm(form: TaskForm) {
-      clearNotice();
+      // 提交成功后表单也是这样关上的，不能把刚显示的提示一起清掉。
+      if (form) clearNotice();
       if (task) setSelection({ id: task.id, form });
     },
     reset() {
@@ -119,7 +142,7 @@ function Workspace({
     execute: team.execute,
     selectedId: selection.task?.id ?? null,
     openTask: selection.open,
-    onCreated(id) {
+    showTask(id) {
       setView("mine");
       selection.select(id);
     },
@@ -148,7 +171,9 @@ function Workspace({
         {who}
       </header>
       {demoEnabled && (
-        <p className="demo-hint">这是演示版：数据只在你的浏览器里，刷新后恢复，不发真实群消息。右上角切换身份，体验交接的两端。</p>
+        <p className="demo-hint">
+          这是演示版：数据只在你的浏览器里，刷新后恢复。不发真实群消息，但每一步会显示要发的内容。右上角切换身份，体验交接的两端。
+        </p>
       )}
       {banner}
       {team.notice && (
@@ -165,6 +190,7 @@ function Workspace({
         <TaskFlow task={selection.task} ctx={ctx} form={selection.form} onForm={selection.setForm} onBack={selection.closeFlow} />
       </div>
       {showTeam && <TeamDialog data={data} ctx={ctx} notice={team.notice} error={team.error} onClose={closeTeam} />}
+      <GroupMessages messages={team.groupMessages} onDismiss={team.dismissGroupMessages} />
     </div>
   );
 }

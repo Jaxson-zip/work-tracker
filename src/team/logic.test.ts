@@ -118,15 +118,22 @@ describe("流转显示", () => {
   });
 
   it("来源：谁交来的，或者自己写的", () => {
-    expect(sourceOf(task(), [activity("me", "created")], members)).toBe("自己写的");
+    expect(sourceOf(task(), [activity("me", "created")], members, "me")).toBe("自己写的");
     const moved = task({ owner_id: "test", created_by: "me" });
-    expect(sourceOf(moved, [activity("test", "accepted", { from: "back" })], members)).toBe("后端 交来的");
-    expect(sourceOf(task({ owner_id: "back", created_by: "me" }), [], members)).toBe("我 写的");
+    expect(sourceOf(moved, [activity("test", "accepted", { from: "back" })], members, "me")).toBe("后端 交来的");
+    expect(sourceOf(task({ owner_id: "back", created_by: "me" }), [], members, "me")).toBe("我 写的");
   });
 
-  it("等人接手时，来源是正在交接的人，不是更早的上一手", () => {
+  it("等我接手时，来源是正在交给我的人，不是更早的上一手", () => {
     const pending = task({ owner_id: "back", created_by: "me", pending_owner_id: "me", handoff_by: "back" });
-    expect(sourceOf(pending, [activity("back", "accepted", { from: "me" })], members)).toBe("后端 交来的");
+    expect(sourceOf(pending, [activity("back", "accepted", { from: "me" })], members, "me")).toBe("后端 交来的");
+  });
+
+  it("交出去的人看这条待办，来源不会变成“自己交来的”", () => {
+    const written = task({ created_by: "me", owner_id: "me", pending_owner_id: "back", handoff_by: "me" });
+    expect(sourceOf(written, [activity("me", "created")], members, "me")).toBe("自己写的");
+    const relayed = task({ created_by: "back", owner_id: "me", pending_owner_id: "test", handoff_by: "me" });
+    expect(sourceOf(relayed, [activity("me", "accepted", { from: "back" })], members, "me")).toBe("后端 交来的");
   });
 
   it("交接链只算真正接手的人，退回和撤回不算", () => {

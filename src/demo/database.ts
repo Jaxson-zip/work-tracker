@@ -1,4 +1,5 @@
 import type { PGlite } from "@electric-sql/pglite";
+import type { GroupMessage } from "../team/types";
 
 // 演示和正式环境跑同一份迁移，只有 auth 模式是这里补的（正式环境由 Supabase 提供）。
 export const demoUsers = [
@@ -12,11 +13,19 @@ function dayOffset(days: number) {
 }
 
 export async function openDemoDatabase(db: PGlite, migrations: string[]) {
-  let queue = Promise.resolve();
+  let queue: Promise<unknown> = Promise.resolve();
+  function inOrder<T>(work: () => Promise<T>) {
+    const result = queue.then(work);
+    queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
   async function command(userId: string, action: string, payload: Record<string, unknown>) {
     if (!demoUsers.some((user) => user.id === userId)) throw new Error("Unknown demo identity");
-    const result = queue.then(async () => {
-      return db.transaction(async (tx) => {
+    return inOrder(() =>
+      db.transaction(async (tx) => {
         await tx.query("select set_config('request.jwt.claim.sub',$1,true)", [userId]);
         await tx.exec("set local role authenticated");
         const response = await tx.query<{ result: any }>("select public.wt_command($1,$2::jsonb) as result", [
@@ -24,13 +33,21 @@ export async function openDemoDatabase(db: PGlite, migrations: string[]) {
           JSON.stringify(payload),
         ]);
         return response.rows[0].result;
-      });
-    });
-    queue = result.then(
-      () => undefined,
-      () => undefined,
+      }),
     );
-    return result;
+  }
+
+  // 演示版没有发送服务：把刚入队的群消息取出来给页面看，内容就是真实发送用的那一份。
+  function takeMessages() {
+    return inOrder(async () => {
+      const response = await db.query<GroupMessage>(`with taken as (
+          update public.wt_outbox set status='sent',sent_at=now() where status='pending' returning payload,created_at
+        )
+        select t.payload->>'message' as message,
+          (select coalesce(jsonb_agg(public.wt_name(id::uuid)),'[]') from jsonb_array_elements_text(t.payload->'mention_ids') id) as mentions
+        from taken t order by t.created_at`);
+      return response.rows;
+    });
   }
 
   // 演示场景：林晓做前端（也是团队管理者），陈晨做后端，周宁做测试。
@@ -103,5 +120,6 @@ export async function openDemoDatabase(db: PGlite, migrations: string[]) {
   }
   for (const migration of migrations) await db.exec(migration);
   await seedStory();
-  return { command, close: () => db.close() };
+  await takeMessages();
+  return { command, takeMessages, close: () => db.close() };
 }

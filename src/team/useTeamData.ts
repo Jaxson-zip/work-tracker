@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchTeamSnapshot, teamCommand } from "./client";
-import type { Execute, TeamSnapshot } from "./types";
+import { fetchTeamSnapshot, takeDemoMessages, teamCommand } from "./client";
+import type { Execute, GroupMessage, TeamSnapshot } from "./types";
 
 const POLL_MS = 15000;
 
@@ -10,6 +10,7 @@ export function useTeamData() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [groupMessages, setGroupMessages] = useState<GroupMessage[]>([]);
   const requestEpoch = useRef(0);
   const mounted = useRef(true);
   const mutationLock = useRef(false);
@@ -46,10 +47,12 @@ export function useTeamData() {
     setBusy(true);
     setError("");
     setNotice("");
+    setGroupMessages([]);
     try {
       const result = (await teamCommand(action, { workspaceId: workspace?.id, ...payload })) ?? {};
       if (!mounted.current) return result;
       setNotice(success);
+      setGroupMessages(await takeDemoMessages());
       await load();
       return result;
     } catch (cause) {
@@ -62,6 +65,7 @@ export function useTeamData() {
   };
 
   const clearNotice = useCallback(() => setNotice(""), []);
+  const dismissGroupMessages = useCallback(() => setGroupMessages([]), []);
 
-  return { data, workspace, busy, error, notice, clearNotice, execute, reload: load };
+  return { data, workspace, busy, error, notice, clearNotice, groupMessages, dismissGroupMessages, execute, reload: load };
 }

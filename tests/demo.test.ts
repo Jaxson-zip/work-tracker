@@ -38,4 +38,38 @@ describe("演示版使用真实 SQL", () => {
       await demo.close();
     }
   }, 60000);
+
+  it("每一步入队的群消息能取出来看，取过不再出现", async () => {
+    const demo = await openDemoDatabase(new PGlite(), await loadMigrations());
+    try {
+      const [lin, chen] = demoUsers.map((user) => user.id);
+      // 初始数据产生的消息不算访问者的操作
+      await expect(demo.takeMessages()).resolves.toEqual([]);
+      const workspaceId = (await demo.command(lin, "snapshot", {})).workspaces[0].id;
+      const own = await demo.command(lin, "create_task", { workspaceId, title: "只记给自己" });
+      await expect(demo.takeMessages()).resolves.toEqual([]);
+
+      const handed = await demo.command(lin, "handoff_task", {
+        workspaceId,
+        taskId: own.id,
+        expectedVersion: own.version,
+        toUserId: chen,
+        note: "接口好了",
+      });
+      const [message, ...others] = await demo.takeMessages();
+      expect(others).toEqual([]);
+      expect(message.message).toContain("【待接手】林晓 把「只记给自己」交给 陈晨");
+      expect(message.message).toContain("交接说明：接口好了");
+      expect(message.mentions).toEqual(["陈晨"]);
+      await expect(demo.takeMessages()).resolves.toEqual([]);
+
+      // 操作失败时事务回滚，不会有消息
+      await expect(
+        demo.command(lin, "complete_task", { workspaceId, taskId: handed.id, expectedVersion: handed.version }),
+      ).rejects.toThrow();
+      await expect(demo.takeMessages()).resolves.toEqual([]);
+    } finally {
+      await demo.close();
+    }
+  }, 60000);
 });

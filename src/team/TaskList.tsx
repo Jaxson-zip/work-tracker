@@ -71,6 +71,9 @@ function DoneGroup({ tasks, ctx }: { tasks: TeamTask[]; ctx: WorkContext }) {
 function IncomingCard({ task, ctx }: { task: TeamTask; ctx: WorkContext }) {
   const from = memberName(ctx.members, task.handoff_by);
   const due = task.due_date ? dueLabel(task.due_date, ctx.today).text : "没有截止日期";
+  async function accept() {
+    if (await ctx.execute("accept_task", { taskId: task.id }, "接手了。这件事现在在你手上。")) ctx.showTask(task.id);
+  }
   return (
     <article className="incoming-card" data-selected={ctx.selectedId === task.id}>
       <button type="button" className="incoming-open" onClick={() => ctx.openTask(task.id)}>
@@ -81,12 +84,7 @@ function IncomingCard({ task, ctx }: { task: TeamTask; ctx: WorkContext }) {
         <span className="incoming-note">{task.handoff_note || "没有写说明"}</span>
       </button>
       <div className="incoming-actions">
-        <button
-          type="button"
-          className="primary"
-          disabled={ctx.busy}
-          onClick={() => void ctx.execute("accept_task", { taskId: task.id }, "接手了。这件事现在在你手上。")}
-        >
+        <button type="button" className="primary" disabled={ctx.busy} onClick={() => void accept()}>
           接手
         </button>
         <button type="button" disabled={ctx.busy} onClick={() => ctx.openTask(task.id, "reject")}>
@@ -101,7 +99,7 @@ function mineMeta(task: TeamTask, ctx: WorkContext) {
   const history = historyOf(ctx.activities, task.id);
   const rejection = lastRejection(history);
   if (rejection) return { meta: `${memberName(ctx.members, rejection.actor_id)} 退回：${rejection.detail.note}`, tone: "wait" as const };
-  return { meta: sourceOf(task, history, ctx.members) };
+  return { meta: sourceOf(task, history, ctx.members, ctx.userId) };
 }
 
 export function MyTasks({ tasks, ctx }: { tasks: TeamTask[]; ctx: WorkContext }) {

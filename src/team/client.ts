@@ -1,5 +1,5 @@
 import { supabase } from "../supabase";
-import type { TeamSnapshot } from "./types";
+import type { GroupMessage, TeamSnapshot } from "./types";
 
 // 只有 --mode demo 的构建才有演示模式，正式构建里这段连同 PGlite 都不会打包。
 export const demoEnabled = import.meta.env.MODE === "demo";
@@ -62,3 +62,10 @@ export async function teamCommand<T = Record<string, unknown>>(action: string, p
 }
 
 export const fetchTeamSnapshot = () => teamCommand<TeamSnapshot>("snapshot");
+
+// 演示版不真发，把这一步会发到群里的消息取出来显示。正式版的消息由 /api/notify 发送。
+export async function takeDemoMessages(): Promise<GroupMessage[]> {
+  if (!demoEnabled) return [];
+  const { demoTakeMessages } = await import("../demo/browser");
+  return demoTakeMessages();
+}

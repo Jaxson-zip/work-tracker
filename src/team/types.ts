@@ -45,6 +45,10 @@ export interface TeamSnapshot {
 // 成功返回命令结果，失败返回 null。notice 是成功后显示给用户的话。
 export type Execute = (action: string, payload: Record<string, unknown>, notice?: string) => Promise<Record<string, unknown> | null>;
 export type TaskForm = "handoff" | "reject" | "edit" | null;
+export interface GroupMessage {
+  message: string;
+  mentions: string[];
+}
 export interface WorkContext {
   userId: string;
   role: TeamRole;
@@ -55,5 +59,5 @@ export interface WorkContext {
   execute: Execute;
   selectedId: string | null;
   openTask: (id: string, form?: TaskForm) => void;
-  onCreated: (id: string) => void;
+  showTask: (id: string) => void;
 }
