@@ -58,7 +58,7 @@ create table public.wt_activities (
   workspace_id uuid not null references public.wt_workspaces(id),
   task_id uuid not null references public.wt_tasks(id) on delete cascade,
   actor_id uuid not null references auth.users(id),
-  action text not null check (action in ('created','handoff','accepted','rejected','withdrawn','done','reopened')),
+  action text not null check (action in ('created','handoff','accepted','rejected','withdrawn','done','reopened','edited')),
   detail jsonb not null default '{}',
   created_at timestamptz not null default now()
 );

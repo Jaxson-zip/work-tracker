@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canEdit,
   chainNodes,
   dueLabel,
   firstTask,
@@ -9,6 +10,7 @@ import {
   sourceOf,
   taskActions,
   teamGroups,
+  waitText,
   whereNow,
 } from "./logic";
 import type { Member, TaskActivity, TeamTask } from "./types";
@@ -70,6 +72,11 @@ describe("我的页面分组", () => {
   it("逾期的排最前，没有日期的排最后", () => {
     const tasks = [task({ id: "none" }), task({ id: "late", due_date: "2026-11-01" }), task({ id: "soon", due_date: "2026-11-09" })];
     expect(myLists(tasks, [], "me").mine.map((t) => t.id)).toEqual(["late", "soon", "none"]);
+  });
+
+  it("管理者只是改过标题或日期，不算经手，不进我的列表", () => {
+    const other = task({ id: "other", owner_id: "test", created_by: "back" });
+    expect(myLists([other], [activity("me", "edited", { due: null }, "other")], "me").passed).toEqual([]);
   });
 
   it("全队先列交接中的，再按人分组，已完成单独放", () => {
@@ -156,6 +163,22 @@ describe("流转显示", () => {
     expect(lastRejection([rejected, activity("me", "handoff")])).toBeNull();
     expect(lastRejection([])).toBeNull();
   });
+
+  it("退回后改了日期，退回原因还在", () => {
+    const rejected = activity("back", "rejected", { note: "排满了" });
+    expect(lastRejection([rejected, activity("me", "edited", { due: "2026-11-09" })])).toBe(rejected);
+  });
+
+  it("交接等待时长：不到 1 小时、几小时、几天，从最近一次交出开始算", () => {
+    const sentAt = "2026-11-07T00:00:00Z";
+    const sent = { ...activity("me", "handoff"), created_at: sentAt };
+    const pending = task({ pending_owner_id: "back", handoff_by: "me" });
+    const after = (hours: number) => Date.parse(sentAt) + hours * 3600000;
+    expect(waitText(pending, [sent], after(0.5))).toBe("等了不到 1 小时");
+    expect(waitText(pending, [sent], after(7))).toBe("等了 7 小时");
+    expect(waitText(pending, [sent], after(50))).toBe("等了 2 天");
+    expect(waitText(task(), [sent], after(50))).toBeNull();
+  });
 });
 
 describe("按钮和数据库权限一致", () => {
@@ -180,6 +203,14 @@ describe("按钮和数据库权限一致", () => {
     expect(actions(task())).toContain("delete");
     expect(actions(task(), "me", "member", [activity("me", "handoff")])).not.toContain("delete");
     expect(actions(task({ created_by: "back" }))).not.toContain("delete");
+  });
+
+  it("负责人和管理者能改标题和日期；交接中和完成后不能改", () => {
+    expect(canEdit(task(), "me", "member")).toBe(true);
+    expect(canEdit(task(), "stranger", "member")).toBe(false);
+    expect(canEdit(task(), "boss", "admin")).toBe(true);
+    expect(canEdit(task({ pending_owner_id: "back" }), "me", "member")).toBe(false);
+    expect(canEdit(task({ status: "done" }), "me", "member")).toBe(false);
   });
 
   it("完成后只能重新打开", () => {

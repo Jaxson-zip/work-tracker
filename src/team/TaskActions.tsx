@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { historyOf, memberName, taskActions, whereNow } from "./logic";
+import { canEdit, historyOf, memberName, taskActions, whereNow } from "./logic";
 import PersonPicker from "./PersonPicker";
 import type { TaskForm, TeamTask, WorkContext } from "./types";
 
@@ -83,6 +83,37 @@ function RejectForm({ task, ctx, onClose }: { task: TeamTask; ctx: WorkContext; 
   );
 }
 
+function EditForm({ task, ctx, onClose }: { task: TeamTask; ctx: WorkContext; onClose: () => void }) {
+  const [title, setTitle] = useState(task.title);
+  const [dueDate, setDueDate] = useState(task.due_date ?? "");
+  const unchanged = title.trim() === task.title && dueDate === (task.due_date ?? "");
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const payload = { taskId: task.id, expectedVersion: task.version, title: title.trim(), dueDate: dueDate || null };
+    if (await ctx.execute("update_task", payload, "已修改。")) onClose();
+  }
+  return (
+    <form className="flow-form" onSubmit={(event) => void submit(event)}>
+      <label>
+        标题
+        <input className="field-soft" required maxLength={160} autoFocus value={title} onChange={(e) => setTitle(e.target.value)} />
+      </label>
+      <label>
+        截止日期（可以清空）
+        <input className="field-soft" type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+      </label>
+      <div className="flow-actions">
+        <button className="primary" disabled={ctx.busy || !title.trim() || unchanged}>
+          保存
+        </button>
+        <button type="button" onClick={onClose}>
+          取消
+        </button>
+      </div>
+    </form>
+  );
+}
+
 // 操作都在流转面板里。管理者替别人处理只是兜底（比如有人要离开团队），用不显眼的文字链接。
 export default function TaskActions({
   task,
@@ -125,7 +156,7 @@ export default function TaskActions({
           </button>
         </div>
       )}
-      {has("complete") && form !== "handoff" && (
+      {has("complete") && !form && (
         <div className="flow-actions">
           <button type="button" className="primary wide" disabled={ctx.busy} onClick={() => onForm("handoff")}>
             做完了，交给下一位
@@ -164,7 +195,7 @@ export default function TaskActions({
       {onlyWatching && (
         <p className="flow-watch">
           {task.status === "open" ? `这件事${whereNow(task, ctx.members, ctx.userId)}，这里只看流转。` : "这件事已经结束，这里只看流转。"}
-          {canHandOffForOther && form !== "handoff" && (
+          {canHandOffForOther && !form && (
             <button type="button" className="link quiet" disabled={ctx.busy} onClick={() => onForm("handoff")}>
               代为交接
             </button>
@@ -183,6 +214,7 @@ export default function TaskActions({
       )}
       {form === "handoff" && has("handoff") && <HandoffForm task={task} ctx={ctx} onClose={closeForm} />}
       {form === "reject" && has("reject") && <RejectForm task={task} ctx={ctx} onClose={closeForm} />}
+      {form === "edit" && canEdit(task, ctx.userId, ctx.role) && <EditForm task={task} ctx={ctx} onClose={closeForm} />}
     </>
   );
 }

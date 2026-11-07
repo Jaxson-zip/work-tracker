@@ -12,7 +12,8 @@ export function historyOf(activities: TaskActivity[], taskId: string): TaskActiv
 }
 
 function touched(task: TeamTask, activities: TaskActivity[], userId: string): boolean {
-  return task.created_by === userId || activities.some((a) => a.task_id === task.id && a.actor_id === userId);
+  // 管理者改过标题或日期不算经手。
+  return task.created_by === userId || activities.some((a) => a.task_id === task.id && a.actor_id === userId && a.action !== "edited");
 }
 
 export interface MyLists {
@@ -101,7 +102,7 @@ export function chainNodes(task: TeamTask, history: TaskActivity[]): { id: strin
 
 // 刚被退回时，要在待办上提示原因；有了新动作就不再提示。
 export function lastRejection(history: TaskActivity[]): TaskActivity | null {
-  const last = history[history.length - 1];
+  const last = history.filter((a) => a.action !== "edited").pop();
   return last?.action === "rejected" ? last : null;
 }
 
@@ -118,6 +119,21 @@ export function taskActions(task: TeamTask, history: TaskActivity[], userId: str
   if (isOwner || manager) actions.push("handoff");
   if (isOwner && task.created_by === userId && !history.some((a) => a.action === "handoff")) actions.push("delete");
   return actions;
+}
+
+// 和 wt_command 的 update_task 保持一致：交接中和完成后不能改。
+export function canEdit(task: TeamTask, userId: string, role: TeamRole): boolean {
+  return task.status === "open" && !task.pending_owner_id && (task.owner_id === userId || isManager(role));
+}
+
+// 交出去等了多久。管理者靠它分清谁真的卡住了。
+export function waitText(task: TeamTask, history: TaskActivity[], now = Date.now()): string | null {
+  if (!task.pending_owner_id) return null;
+  const sent = history.filter((a) => a.action === "handoff").pop();
+  if (!sent) return null;
+  const hours = Math.floor((now - Date.parse(sent.created_at)) / 3600000);
+  if (hours < 1) return "等了不到 1 小时";
+  return hours < 24 ? `等了 ${hours} 小时` : `等了 ${Math.floor(hours / 24)} 天`;
 }
 
 const DAY = 86400000;

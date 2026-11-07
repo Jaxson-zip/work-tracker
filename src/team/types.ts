@@ -22,8 +22,8 @@ export interface TaskActivity {
   id: string;
   task_id: string;
   actor_id: string;
-  action: "created" | "handoff" | "accepted" | "rejected" | "withdrawn" | "done" | "reopened";
-  detail: { to?: string; from?: string; note?: string };
+  action: "created" | "handoff" | "accepted" | "rejected" | "withdrawn" | "done" | "reopened" | "edited";
+  detail: { to?: string; from?: string; note?: string; title?: string; due?: string | null };
   created_at: string;
 }
 export interface TeamInvite {
@@ -44,7 +44,7 @@ export interface TeamSnapshot {
 
 // 成功返回命令结果，失败返回 null。notice 是成功后显示给用户的话。
 export type Execute = (action: string, payload: Record<string, unknown>, notice?: string) => Promise<Record<string, unknown> | null>;
-export type TaskForm = "handoff" | "reject" | null;
+export type TaskForm = "handoff" | "reject" | "edit" | null;
 export interface WorkContext {
   userId: string;
   role: TeamRole;

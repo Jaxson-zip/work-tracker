@@ -241,6 +241,62 @@ describe("谁能看到什么", () => {
   });
 });
 
+describe("修改标题和日期", () => {
+  test("负责人能改，改动留在流转里；管理者代改要通知负责人", async () => {
+    const w = await team();
+    const task = await command(BACK, "create_task", { workspaceId: w, title: "旧标题", ownerId: users[BACK], dueDate: "2026-11-10" });
+    const changed = await command(BACK, "update_task", {
+      workspaceId: w,
+      taskId: task.id,
+      expectedVersion: task.version,
+      title: "新标题",
+      dueDate: "2026-11-12",
+    });
+    expect(changed).toMatchObject({ title: "新标题", due_date: "2026-11-12", version: task.version + 1 });
+    const snapshot = await command(BACK, "snapshot", { workspaceId: w });
+    const edited = snapshot.activities.find((a: any) => a.task_id === task.id && a.action === "edited");
+    expect(edited.detail).toEqual({ title: "新标题", due: "2026-11-12" });
+
+    const cleared = await command(LEAD, "update_task", {
+      workspaceId: w,
+      taskId: task.id,
+      expectedVersion: changed.version,
+      title: "新标题",
+      dueDate: null,
+    });
+    expect(cleared.due_date).toBeNull();
+    expect(await pendingMessages()).toContainEqual(expect.stringContaining("【已修改】"));
+  });
+
+  test("没有改动不留记录；无关的人、旧版本、交接中和完成后都不能改", async () => {
+    const w = await team();
+    const task = await command(BACK, "create_task", { workspaceId: w, title: "事项", ownerId: users[BACK] });
+    const update = (index: number, fields = {}) =>
+      command(index, "update_task", { workspaceId: w, taskId: task.id, expectedVersion: task.version, title: "事项", ...fields });
+
+    const same = await update(BACK);
+    expect(same.version).toBe(task.version);
+    expect(await activityOf(BACK, w, task.id)).toEqual(["created"]);
+
+    await expect(update(TEST, { title: "偷改" })).rejects.toThrow(/Forbidden|Task not found/);
+    await expect(update(BACK, { expectedVersion: task.version + 5, title: "过期" })).rejects.toThrow(/Version conflict/);
+    await expect(update(BACK, { title: " " })).rejects.toThrow(/Invalid title/);
+
+    const sent = await command(BACK, "handoff_task", {
+      workspaceId: w,
+      taskId: task.id,
+      expectedVersion: task.version,
+      toUserId: users[TEST],
+      note: "请接手",
+    });
+    await expect(update(BACK, { expectedVersion: sent.version, title: "交接中改" })).rejects.toThrow(/Handoff pending/);
+    await command(BACK, "withdraw_task", { workspaceId: w, taskId: task.id });
+    const current = (await command(BACK, "snapshot", { workspaceId: w })).tasks.find((t: any) => t.id === task.id);
+    const done = await command(BACK, "complete_task", { workspaceId: w, taskId: task.id, expectedVersion: current.version });
+    await expect(update(BACK, { expectedVersion: done.version, title: "完成后改" })).rejects.toThrow(/Task done/);
+  });
+});
+
 describe("团队管理", () => {
   test("只有管理者能邀请；邀请码只能用一次", async () => {
     const w = (await command(LEAD, "create_workspace", { name: "新组" })).id;

@@ -11,11 +11,11 @@
 - `src/team/`：页面。`logic.ts` 是分组和按钮规则，`client.ts` 负责调用和错误翻译。
 - `supabase/migrations/`：表和全部业务写入（`wt_command`）。
 - `api/notify/`、`api/_notify/`：群通知发送。
-- `server/demo/`：本地演示（真实 SQL + PGlite）。`e2e/`：浏览器流程。
+- `src/demo/`：演示版，在浏览器里用 PGlite 跑真实 SQL，只进 `--mode demo` 的构建。`e2e/`：浏览器流程，测的就是演示构建。
 
 ## 命令
 
-`npm run demo`（本地演示）、`npm test`、`npm run e2e`、`npm run build`。
+`npm run demo`（本地演示）、`npm run build:demo`（构建可发布的演示版到 `dist-demo/`）、`npm test`、`npm run e2e`、`npm run build`。
 
 ## 硬性规则
 

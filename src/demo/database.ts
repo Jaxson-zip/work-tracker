@@ -1,8 +1,6 @@
-import { PGlite } from "@electric-sql/pglite";
-import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import type { PGlite } from "@electric-sql/pglite";
 
+// 演示和正式环境跑同一份迁移，只有 auth 模式是这里补的（正式环境由 Supabase 提供）。
 export const demoUsers = [
   { id: "11111111-1111-4111-8111-111111111111", name: "林晓" },
   { id: "22222222-2222-4222-8222-222222222222", name: "陈晨" },
@@ -13,10 +11,7 @@ function dayOffset(days: number) {
   return new Date(Date.now() + days * 86400000).toLocaleDateString("en-CA");
 }
 
-export async function createDemoDatabase(dataDir?: string) {
-  const db = new PGlite(dataDir);
-  // This auth shim exists ONLY in the opt-in loopback development server.
-  // Production uses Supabase Auth. No user-controlled SQL reaches this database.
+export async function openDemoDatabase(db: PGlite, migrations: string[]) {
   let queue = Promise.resolve();
   async function command(userId: string, action: string, payload: Record<string, unknown>) {
     if (!demoUsers.some((user) => user.id === userId)) throw new Error("Unknown demo identity");
@@ -37,22 +32,7 @@ export async function createDemoDatabase(dataDir?: string) {
     );
     return result;
   }
-  async function seed() {
-    await db.exec(`create schema auth; create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
-      create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb);
-      create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
-      grant usage on schema auth to authenticated,service_role; grant execute on function auth.uid() to authenticated,service_role;`);
-    for (let i = 0; i < demoUsers.length; i++) {
-      await db.query("insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)", [
-        demoUsers[i].id,
-        `demo${i}@example.test`,
-        JSON.stringify({ display_name: demoUsers[i].name }),
-      ]);
-    }
-    const dir = fileURLToPath(new URL("../../supabase/migrations/", import.meta.url));
-    for (const file of (await readdir(dir)).sort()) await db.exec(await readFile(join(dir, file), "utf8"));
-    await seedStory();
-  }
+
   // 演示场景：林晓做前端（也是团队管理者），陈晨做后端，周宁做测试。
   async function seedStory() {
     const [lin, chen, zhou] = demoUsers.map((user) => user.id);
@@ -98,13 +78,30 @@ export async function createDemoDatabase(dataDir?: string) {
     const permission = await create(chen, { title: "用户权限接口", dueDate: dayOffset(2) });
     await handoff(chen, permission, zhou, "接口写完了，请测试各角色的权限。");
     await act(zhou, "accept_task", { taskId: permission.id });
+
+    // 交出去两天没人接：管理者应该一眼看到它卡住了
+    const coupon = await create(chen, { title: "优惠券接口对接", dueDate: dayOffset(4) });
+    await handoff(chen, coupon, zhou, "优惠券接口写完了，请测试满减和过期两种情况。");
+
+    // 演示数据是一次写入的，把时间摊开，流转才像真实发生过。
+    await db.exec(`update public.wt_activities a
+      set created_at = now() - (b.rn * case when t.title = '优惠券接口对接' then interval '2 days' else interval '7 hours' end)
+      from (select id, row_number() over (partition by task_id order by seq desc) as rn from public.wt_activities) b, public.wt_tasks t
+      where b.id = a.id and t.id = a.task_id`);
   }
-  try {
-    const exists = await db.query<{ name: string | null }>("select to_regclass('public.wt_workspaces')::text as name");
-    if (!exists.rows[0].name) await seed();
-    return { command, close: () => db.close() };
-  } catch (error) {
-    await db.close();
-    throw error;
+
+  await db.exec(`create schema auth; create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
+    create table auth.users(id uuid primary key,email text,raw_user_meta_data jsonb);
+    create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
+    grant usage on schema auth to authenticated,service_role; grant execute on function auth.uid() to authenticated,service_role;`);
+  for (let i = 0; i < demoUsers.length; i++) {
+    await db.query("insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3)", [
+      demoUsers[i].id,
+      `demo${i}@example.test`,
+      JSON.stringify({ display_name: demoUsers[i].name }),
+    ]);
   }
+  for (const migration of migrations) await db.exec(migration);
+  await seedStory();
+  return { command, close: () => db.close() };
 }

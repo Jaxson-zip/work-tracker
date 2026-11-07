@@ -1,20 +1,22 @@
 // 浏览器端到端：在本地演示模式（真实 SQL + PGlite）里，走一遍前端 → 后端 → 测试的交接。
-// 不连接任何外部服务，不发真实消息。用法：npm run e2e（需要本机装有 Chrome 或 Edge）
+// 不连接任何外部服务，不发真实消息。测的就是要发布的演示构建。
+// 用法：npm run e2e（需要本机装有 Chrome 或 Edge）；E2E_URL=线上地址 node e2e/flow.mjs 可以直接测线上。
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { chromium } from "playwright-core";
 
 const PORT = 5176;
-const BASE = `http://127.0.0.1:${PORT}`;
+const BASE = process.env.E2E_URL ?? `http://127.0.0.1:${PORT}`;
 const TITLE = "端到端-跟进退款接口";
-const dir = mkdtempSync(join(tmpdir(), "wt-e2e-"));
-const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"], {
-  env: { ...process.env, VITE_WORK_TRACKER_DEMO: "1", WORK_TRACKER_DEMO_DIR: dir },
-  stdio: "ignore",
-  windowsHide: true,
-});
+const server = process.env.E2E_URL
+  ? null
+  : spawn(
+      process.execPath,
+      ["node_modules/vite/bin/vite.js", "preview", "--outDir", "dist-demo", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"],
+      {
+        stdio: "ignore",
+        windowsHide: true,
+      },
+    );
 
 let passed = 0;
 function ok(condition, name) {
@@ -46,8 +48,9 @@ function helpers(page) {
     group: (name) => page.getByRole("region", { name }),
     as: async (name) => {
       const button = page.getByRole("group", { name: "切换演示身份" }).getByRole("button", { name });
-      await Promise.all([page.waitForResponse((response) => response.url().includes("/__demo/command")), button.click()]);
-      await page.locator(".new-task").waitFor();
+      await button.click();
+      // 新身份的数据读回来之后，按钮才以选中状态重新出现。
+      await page.locator('[aria-label="切换演示身份"] button[aria-pressed="true"]', { hasText: name }).waitFor();
     },
     open: (title) => row(title).locator(".task-main, .incoming-open").first().click(),
     press: (label) => flow.getByRole("button", { name: label, exact: true }).click(),
@@ -149,20 +152,21 @@ async function everyoneSeesFlow(page, h) {
   await page.getByRole("button", { name: "我的" }).click();
 }
 
-async function conflictAndTeam(browser, page, h) {
-  const other = await browser.newPage();
-  await other.goto(BASE);
-  await other.locator(".new-task").waitFor();
-  const stale = helpers(other);
-  await stale.open("登录页改版");
-  await h.open("登录页改版");
-  await h.press("到此结束");
-  await h.group("我手上").getByText("登录页改版").waitFor({ state: "detached" });
-  await stale.press("到此结束");
-  await other.getByRole("alert").waitFor();
-  const message = await other.getByRole("alert").innerText();
-  ok(message.includes("别人刚改过") && !/conflict/i.test(message), "两个人同时操作时给中文提示，不露英文错误");
-  await other.close();
+async function editAndTeam(page, h) {
+  await h.open("整理下周发布清单");
+  await h.flow.getByRole("button", { name: "修改", exact: true }).click();
+  const form = page.locator(".flow-form");
+  await form.locator('input[type="date"]').fill("2030-01-15");
+  await form.locator("input").first().fill("整理发布清单");
+  await form.locator('button:not([type="button"])').click();
+  await form.waitFor({ state: "detached" });
+  await h.group("我手上").getByText("整理发布清单").waitFor();
+  const history = await h.flow.locator(".timeline").innerText();
+  ok(history.includes("把标题改成「整理发布清单」") && history.includes("2030-01-15"), "能改标题和日期，修改也留在流转里");
+
+  await page.getByRole("button", { name: "全队" }).click();
+  ok((await h.group("交接中，等人接手").innerText()).includes("等了 2 天"), "管理者能看到交接已经等了多久");
+  await page.getByRole("button", { name: "我的" }).click();
 
   await page.getByRole("button", { name: /订单系统项目组/ }).click();
   const dialog = page.locator("dialog[open]");
@@ -206,11 +210,15 @@ try {
   await page.goto(BASE);
   await page.locator(".new-task").waitFor({ timeout: 60000 });
   const h = helpers(page);
+  ok((await page.locator(".demo-hint").count()) === 1, "演示版提示只出现一次");
   await writeAndHand(page, h);
   await rejectAndRetry(page, h);
   await relayToDone(page, h);
   await everyoneSeesFlow(page, h);
-  await conflictAndTeam(browser, page, h);
+  await editAndTeam(page, h);
+  await page.reload();
+  await page.locator(".new-task").waitFor({ timeout: 60000 });
+  ok(await page.getByText("整理下周发布清单").isVisible(), "演示版刷新后恢复初始数据");
   await phone(browser);
   ok(errors.length === 0, `页面没有运行错误 ${errors.join(" | ")}`);
   console.log(`\n全部通过：${passed} 项`);
@@ -219,9 +227,7 @@ try {
   console.error(`\n${error.message}`);
 } finally {
   await browser?.close();
-  if (process.platform === "win32") spawn("taskkill", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore" });
-  else server.kill();
-  await new Promise((done) => setTimeout(done, 800));
-  rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+  if (server && process.platform === "win32") spawn("taskkill", ["/PID", String(server.pid), "/T", "/F"], { stdio: "ignore" });
+  else server?.kill();
   process.exit(failed ? 1 : 0);
 }

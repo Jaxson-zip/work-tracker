@@ -147,6 +147,9 @@ function Workspace({
         </div>
         {who}
       </header>
+      {demoEnabled && (
+        <p className="demo-hint">这是演示版：数据只在你的浏览器里，刷新后恢复，不发真实群消息。右上角切换身份，体验交接的两端。</p>
+      )}
       {banner}
       {team.notice && (
         <p className="notice" role="status">
@@ -174,7 +177,7 @@ export default function TeamWorkbench({ session, onSwitchDemoUser }: { session: 
   if (!data) {
     return (
       <div className="splash" role={error ? "alert" : "status"}>
-        {error || "正在打开…"}
+        {error || (demoEnabled ? "正在准备演示数据，第一次打开要等几秒…" : "正在打开…")}
       </div>
     );
   }

@@ -2,7 +2,7 @@ import { createClient, type Session, type SupabaseClient } from "@supabase/supab
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-const demoMode = import.meta.env.DEV && import.meta.env.VITE_WORK_TRACKER_DEMO === "1";
+const demoMode = import.meta.env.MODE === "demo";
 
 export const isSupabaseConfigured = !demoMode && Boolean(supabaseUrl && supabaseAnonKey);
 

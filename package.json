@@ -8,8 +8,9 @@
     "build": "tsc -b && tsc -p tsconfig.api.json && vite build",
     "test": "vitest run",
     "preview": "vite preview --host 0.0.0.0",
-    "demo": "node server/demo/start.mjs",
-    "e2e": "node e2e/flow.mjs"
+    "demo": "vite --mode demo --host 127.0.0.1 --port 5174 --strictPort",
+    "build:demo": "tsc -b && vite build --mode demo --outDir dist-demo --base ./",
+    "e2e": "npm run build:demo && node e2e/flow.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",

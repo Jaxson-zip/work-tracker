@@ -44,7 +44,7 @@ revoke all on function public.wt_name(uuid),public.wt_log(public.wt_tasks,uuid,t
 -- 单条待办的流转。调用方已确认成员身份并锁定团队。
 create function public.wt_task_command(p_action text,p jsonb,w uuid,u uuid,r text) returns jsonb
 language plpgsql set search_path=pg_catalog,public as $$
-declare t public.wt_tasks%rowtype; manager boolean:=r in ('owner','admin'); v_note text; v_to uuid; v_people uuid[];
+declare t public.wt_tasks%rowtype; manager boolean:=r in ('owner','admin'); v_note text; v_to uuid; v_people uuid[]; v_title text; v_due date;
 begin
   select * into t from public.wt_tasks where workspace_id=w and id=(p->>'taskId')::uuid for update;
   if t.id is null then raise exception 'Task not found'; end if;
@@ -91,6 +91,19 @@ begin
       perform public.wt_log(t,u,'done');
       select array_agg(a.actor_id) into v_people from public.wt_activities a where a.task_id=t.id;
       perform public.wt_notify(w,u,v_people,'【已完成】' || public.wt_name(u) || ' 完成了「' || t.title || '」');
+    elsif p_action='update_task' then
+      -- 交接中不能改：对方正在按交接时的内容决定接不接。
+      if u<>t.owner_id and not manager then raise exception 'Forbidden'; end if;
+      if t.status='done' then raise exception 'Task done'; end if;
+      if t.pending_owner_id is not null then raise exception 'Handoff pending'; end if;
+      v_title:=public.wt_text(p,'title',160,true);
+      v_due:=public.wt_date(p,'dueDate');
+      if v_title=t.title and v_due is not distinct from t.due_date then return to_jsonb(t); end if;
+      perform public.wt_log(t,u,'edited',
+        case when v_title<>t.title then jsonb_build_object('title',v_title) else '{}'::jsonb end ||
+        case when v_due is distinct from t.due_date then jsonb_build_object('due',v_due) else '{}'::jsonb end);
+      perform public.wt_notify(w,u,array[t.owner_id],'【已修改】' || public.wt_name(u) || ' 修改了「' || t.title || '」');
+      t.title:=v_title; t.due_date:=v_due;
     elsif p_action='reopen_task' then
       if u not in (t.owner_id,t.created_by) and not manager then raise exception 'Forbidden'; end if;
       if t.status<>'done' then raise exception 'Task not done'; end if;
@@ -100,7 +113,7 @@ begin
       perform public.wt_notify(w,u,array[t.owner_id],'【重新打开】' || public.wt_name(u) || ' 重新打开了「' || t.title || '」');
     else raise exception 'Unknown action: %',p_action; end if;
   end if;
-  update public.wt_tasks set owner_id=t.owner_id,status=t.status,pending_owner_id=t.pending_owner_id,handoff_by=t.handoff_by,handoff_note=t.handoff_note,
+  update public.wt_tasks set title=t.title,due_date=t.due_date,owner_id=t.owner_id,status=t.status,pending_owner_id=t.pending_owner_id,handoff_by=t.handoff_by,handoff_note=t.handoff_note,
     version=version+1,updated_at=now() where id=t.id returning * into t;
   return to_jsonb(t);
 end $$;
@@ -174,7 +187,7 @@ begin
   if r is null then raise exception 'Forbidden'; end if;
   if p_action='create_task' then
     return public.wt_create_task(w,u,p_payload);
-  elsif p_action in ('handoff_task','accept_task','reject_task','withdraw_task','complete_task','reopen_task','delete_task') then
+  elsif p_action in ('handoff_task','accept_task','reject_task','withdraw_task','complete_task','reopen_task','delete_task','update_task') then
     return public.wt_task_command(p_action,p_payload,w,u,r);
   end if;
   if r not in ('owner','admin') then raise exception 'Forbidden'; end if;

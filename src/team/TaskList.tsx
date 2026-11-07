@@ -1,10 +1,15 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { dueLabel, handoffChain, historyOf, lastRejection, memberName, myLists, sourceOf, teamGroups, whereNow } from "./logic";
+import { dueLabel, handoffChain, historyOf, lastRejection, memberName, myLists, sourceOf, teamGroups, waitText, whereNow } from "./logic";
 import type { TeamTask, WorkContext } from "./types";
 
 function chainText(task: TeamTask, ctx: WorkContext) {
   const chain = handoffChain(task, historyOf(ctx.activities, task.id));
   return chain.length > 1 ? chain.map((id) => memberName(ctx.members, id)).join(" → ") : "自己写的";
+}
+
+function withWait(text: string, task: TeamTask, ctx: WorkContext) {
+  const waiting = waitText(task, historyOf(ctx.activities, task.id));
+  return waiting ? `${text} · ${waiting}` : text;
 }
 
 function Due({ task, ctx }: { task: TeamTask; ctx: WorkContext }) {
@@ -119,7 +124,7 @@ export function MyTasks({ tasks, ctx }: { tasks: TeamTask[]; ctx: WorkContext })
       </Group>
       <Group title="我交出去的" count={lists.passed.length}>
         {lists.passed.map((task) => (
-          <Row key={task.id} task={task} ctx={ctx} meta={whereNow(task, ctx.members, ctx.userId)} tone="where" />
+          <Row key={task.id} task={task} ctx={ctx} meta={withWait(whereNow(task, ctx.members, ctx.userId), task, ctx)} tone="where" />
         ))}
       </Group>
       {empty && <p className="empty">手上没有待办。在上面写第一条吧。</p>}
@@ -139,7 +144,7 @@ export function TeamTasks({ tasks, ctx }: { tasks: TeamTask[]; ctx: WorkContext 
             key={task.id}
             task={task}
             ctx={ctx}
-            meta={`${memberName(ctx.members, task.handoff_by)} → ${memberName(ctx.members, task.pending_owner_id)}`}
+            meta={withWait(`${memberName(ctx.members, task.handoff_by)} → ${memberName(ctx.members, task.pending_owner_id)}`, task, ctx)}
             tone="wait"
           />
         ))}

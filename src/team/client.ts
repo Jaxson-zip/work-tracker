@@ -1,7 +1,8 @@
 import { supabase } from "../supabase";
 import type { TeamSnapshot } from "./types";
 
-export const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_WORK_TRACKER_DEMO === "1";
+// 只有 --mode demo 的构建才有演示模式，正式构建里这段连同 PGlite 都不会打包。
+export const demoEnabled = import.meta.env.MODE === "demo";
 export const demoPeople = [
   { id: "11111111-1111-4111-8111-111111111111", name: "林晓（管理者）" },
   { id: "22222222-2222-4222-8222-222222222222", name: "陈晨" },
@@ -28,6 +29,7 @@ const friendlyErrors: [RegExp, string][] = [
   [/Already a member/, "你已经是这个团队的成员了"],
   [/Invalid mobile/, "手机号格式不正确"],
   [/Invalid note/, "请填写说明"],
+  [/Invalid dueDate/, "日期格式不正确"],
   [/Invalid title|Invalid name|Invalid displayName/, "内容不能为空，也不能太长"],
   [/Forbidden/, "你没有权限做这个操作"],
   [/Task not found|Member not found/, "内容不存在，可能已被移除"],
@@ -45,14 +47,12 @@ async function flushNotifications() {
 
 export async function teamCommand<T = Record<string, unknown>>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
   if (demoEnabled) {
-    const response = await fetch("/__demo/command", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId: demoUserId, action, payload }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(errorText(data.error ?? ""));
-    return data as T;
+    const { demoCommand } = await import("../demo/browser");
+    try {
+      return (await demoCommand(demoUserId, action, payload)) as T;
+    } catch (cause) {
+      throw new Error(errorText(cause instanceof Error ? cause.message : ""));
+    }
   }
   if (!supabase) throw new Error("服务尚未配置");
   const { data, error } = await supabase.rpc("wt_command", { p_action: action, p_payload: payload });

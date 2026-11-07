@@ -1,4 +1,4 @@
-import { chainNodes, dueLabel, historyOf, memberName, sourceOf, whereNow } from "./logic";
+import { canEdit, chainNodes, dueLabel, historyOf, memberName, sourceOf, waitText, whereNow } from "./logic";
 import TaskActions from "./TaskActions";
 import type { Member, TaskActivity, TaskForm, TeamTask, WorkContext } from "./types";
 
@@ -28,8 +28,16 @@ function Chain({ task, history, ctx }: { task: TeamTask; history: TaskActivity[]
   );
 }
 
+function describeEdit(actor: string, detail: TaskActivity["detail"]): string {
+  const changes: string[] = [];
+  if (detail.title) changes.push(`把标题改成「${detail.title}」`);
+  if ("due" in detail) changes.push(detail.due ? `把截止日期改成 ${detail.due}` : "取消了截止日期");
+  return `${actor} ${changes.join("，")}`;
+}
+
 function describe({ action, actor_id, detail }: TaskActivity, members: Member[]): string {
   const actor = memberName(members, actor_id);
+  if (action === "edited") return describeEdit(actor, detail);
   if (action === "created") return `${actor} 写了这条待办`;
   if (action === "handoff") return `${actor} 交给 ${memberName(members, detail.to)}`;
   if (action === "accepted") return `${actor} 接手了`;
@@ -95,11 +103,15 @@ export default function TaskFlow({
   const history = historyOf(ctx.activities, task.id);
   const due = task.status === "open" && task.due_date ? dueLabel(task.due_date, ctx.today) : null;
   const tone = task.pending_owner_id ? "wait" : task.status === "open" ? "where" : "";
+  const waiting = waitText(task, history);
   return (
     <main className="pane-flow">
       {back}
       <div className="flow-head">
-        <span className={`flow-where tone-${tone}`}>{whereNow(task, ctx.members, ctx.userId)}</span>
+        <span className={`flow-where tone-${tone}`}>
+          {whereNow(task, ctx.members, ctx.userId)}
+          {waiting && ` · ${waiting}`}
+        </span>
         <h1>{task.title}</h1>
         <span className="flow-source">
           {sourceOf(task, history, ctx.members)}
@@ -108,6 +120,11 @@ export default function TaskFlow({
               {" · "}
               <span className={due.overdue ? "text-danger" : undefined}>{due.text}</span>
             </>
+          )}
+          {canEdit(task, ctx.userId, ctx.role) && form !== "edit" && (
+            <button type="button" className="link quiet" onClick={() => onForm("edit")}>
+              修改
+            </button>
           )}
         </span>
       </div>
