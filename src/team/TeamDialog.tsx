@@ -61,7 +61,19 @@ function ProfileForm({ data, ctx }: { data: TeamSnapshot; ctx: WorkContext }) {
 }
 
 // 团队设置只有这一个弹窗：不常用，不占页面。
-export default function TeamDialog({ data, ctx, onClose }: { data: TeamSnapshot; ctx: WorkContext; onClose: () => void }) {
+export default function TeamDialog({
+  data,
+  ctx,
+  notice,
+  error,
+  onClose,
+}: {
+  data: TeamSnapshot;
+  ctx: WorkContext;
+  notice: string;
+  error: string;
+  onClose: () => void;
+}) {
   const ref = useRef<HTMLDialogElement>(null);
   const manager = isManager(ctx.role);
   useEffect(() => {
@@ -75,6 +87,16 @@ export default function TeamDialog({ data, ctx, onClose }: { data: TeamSnapshot;
           关闭
         </button>
       </div>
+      {error && (
+        <p className="banner" role="alert">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      )}
       <ProfileForm data={data} ctx={ctx} />
       <h3>成员</h3>
       <ul className="member-list">

@@ -1,5 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { parseTaskInput } from "../taskInputParser";
+import { dueLabel, memberName } from "./logic";
+import PersonPicker from "./PersonPicker";
 import type { WorkContext } from "./types";
 
 // 写一条待办：默认自己做，也可以直接交给别人。文字里的日期会自动识别。
@@ -7,59 +9,68 @@ export default function NewTask({ ctx }: { ctx: WorkContext }) {
   const [text, setText] = useState("");
   const [ownerId, setOwnerId] = useState(ctx.userId);
   const [note, setNote] = useState("");
-  // null 表示跟随文字里识别到的日期；用户动过日期框后以用户为准。
-  const [date, setDate] = useState<string | null>(null);
-  const parsed = useMemo(() => (text.trim() ? parseTaskInput(text.trim()) : null), [text]);
-  const dueDate = date ?? parsed?.dueDate ?? "";
+  // 识别错了可以不要：记下这段文字不再识别，改了文字再重新识别。
+  const [ignored, setIgnored] = useState("");
+  const parsed = useMemo(() => (text.trim() && text !== ignored ? parseTaskInput(text.trim()) : null), [text, ignored]);
+  const dueDate = parsed?.dueDate ?? null;
   const forOther = ownerId !== ctx.userId;
+  const toName = memberName(ctx.members, ownerId);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    const title = date === null ? parsed?.title || text.trim() : text.trim();
-    if (!(await ctx.execute("create_task", { title, ownerId, dueDate: dueDate || null, note: forOther ? note.trim() : "" }))) return;
+    const payload = { title: parsed?.title || text.trim(), ownerId, dueDate, note: forOther ? note.trim() : "" };
+    const created = await ctx.execute("create_task", payload, forOther ? `已交给${toName}，等对方接手。` : "记下了。");
+    if (!created) return;
     setText("");
-    setDate(null);
+    setIgnored("");
     setNote("");
     setOwnerId(ctx.userId);
+    ctx.onCreated(String(created.id));
   }
 
   return (
     <form className="new-task" onSubmit={(event) => void submit(event)}>
       <input
-        className="new-task-text"
+        className="field-soft new-task-text"
         aria-label="写一条待办"
-        placeholder="写一条待办，例如：周五前联调订单接口"
+        placeholder="写一条待办，比如：周五前联调退款接口"
         maxLength={160}
         value={text}
         onChange={(e) => setText(e.target.value)}
       />
+      {dueDate && (
+        <span className="new-task-due">
+          识别到：{dueLabel(dueDate, ctx.today).text}
+          <button type="button" className="link quiet" onClick={() => setIgnored(text)}>
+            不要日期
+          </button>
+        </span>
+      )}
       {forOther && (
-        <input
-          className="new-task-note"
+        <textarea
+          className="field-soft"
           aria-label="交接说明"
-          placeholder="交接说明：做到哪了、还要做什么（可选）"
+          rows={2}
+          placeholder="交接说明：做到哪了、对方要做什么"
           maxLength={1000}
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
       )}
       <div className="new-task-bar">
-        <label className="inline-field">
-          交给
-          <select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-            {ctx.members.map((member) => (
-              <option key={member.user_id} value={member.user_id}>
-                {member.user_id === ctx.userId ? "我自己" : member.display_name}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="inline-field">
-          截止
-          <input type="date" value={dueDate} onChange={(e) => setDate(e.target.value)} />
-        </label>
-        <button className="primary new-task-submit" disabled={ctx.busy || !text.trim()}>
-          {forOther ? "交出去" : "记下"}
+        <PersonPicker
+          label="交给"
+          value={ownerId}
+          onChange={setOwnerId}
+          options={[
+            { id: ctx.userId, label: "我自己" },
+            ...ctx.members
+              .filter((member) => member.user_id !== ctx.userId)
+              .map((member) => ({ id: member.user_id, label: member.display_name })),
+          ]}
+        />
+        <button className="primary" disabled={ctx.busy || !text.trim()}>
+          {forOther ? `交给${toName}` : "记下"}
         </button>
       </div>
     </form>

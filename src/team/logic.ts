@@ -38,11 +38,28 @@ export function myLists(tasks: TeamTask[], activities: TaskActivity[], userId: s
   return lists;
 }
 
-export function teamLists(tasks: TeamTask[]): { open: TeamTask[]; done: TeamTask[] } {
+export interface TeamGroups {
+  moving: TeamTask[];
+  holders: { member: Member; tasks: TeamTask[] }[];
+  done: TeamTask[];
+}
+// 全队：先看卡在交接路上的，再按人看各自手上的。
+export function teamGroups(tasks: TeamTask[], members: Member[]): TeamGroups {
+  const open = tasks.filter((task) => task.status === "open").sort(byDue);
   return {
-    open: tasks.filter((task) => task.status === "open").sort(byDue),
+    moving: open.filter((task) => task.pending_owner_id),
+    holders: members
+      .map((member) => ({ member, tasks: open.filter((task) => task.owner_id === member.user_id && !task.pending_owner_id) }))
+      .filter((holder) => holder.tasks.length > 0),
     done: tasks.filter((task) => task.status === "done").sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
   };
+}
+
+// 进页面时右边默认显示的待办：最该处理的那条。
+export function firstTask(tasks: TeamTask[], activities: TaskActivity[], userId: string, team: boolean): TeamTask | null {
+  if (team) return tasks.filter((task) => task.status === "open").sort(byDue)[0] ?? null;
+  const lists = myLists(tasks, activities, userId);
+  return lists.incoming[0] ?? lists.mine[0] ?? lists.passed[0] ?? null;
 }
 
 // 事情现在在哪：列表和详情都用这一句话。
@@ -71,6 +88,17 @@ export function handoffChain(task: TeamTask, history: TaskActivity[]): string[] 
   return chain;
 }
 
+export type ChainState = "past" | "now" | "wait" | "done";
+// 交接链上每个人的状态：经手过、现在在这、等接手、已完成。
+export function chainNodes(task: TeamTask, history: TaskActivity[]): { id: string; state: ChainState }[] {
+  const nodes = handoffChain(task, history).map((id): { id: string; state: ChainState } => ({ id, state: "past" }));
+  const last = nodes[nodes.length - 1];
+  if (task.status === "done") last.state = "done";
+  else if (task.pending_owner_id) nodes.push({ id: task.pending_owner_id, state: "wait" });
+  else last.state = "now";
+  return nodes;
+}
+
 // 刚被退回时，要在待办上提示原因；有了新动作就不再提示。
 export function lastRejection(history: TaskActivity[]): TaskActivity | null {
   const last = history[history.length - 1];
@@ -90,13 +118,6 @@ export function taskActions(task: TeamTask, history: TaskActivity[], userId: str
   if (isOwner || manager) actions.push("handoff");
   if (isOwner && task.created_by === userId && !history.some((a) => a.action === "handoff")) actions.push("delete");
   return actions;
-}
-
-// 列表行只放当事人常用的操作，其余留在详情里，免得每行都一排按钮。
-export function rowActions(task: TeamTask, history: TaskActivity[], userId: string, role: TeamRole): TaskAction[] {
-  const detailOnly: TaskAction[] = ["delete", "reopen"];
-  if (task.owner_id !== userId) detailOnly.push("handoff");
-  return taskActions(task, history, userId, role).filter((action) => !detailOnly.includes(action));
 }
 
 const DAY = 86400000;

@@ -3,9 +3,9 @@ import type { TeamSnapshot } from "./types";
 
 export const demoEnabled = import.meta.env.DEV && import.meta.env.VITE_WORK_TRACKER_DEMO === "1";
 export const demoPeople = [
-  { id: "11111111-1111-4111-8111-111111111111", name: "林晓（前端，管理者）" },
-  { id: "22222222-2222-4222-8222-222222222222", name: "陈晨（后端）" },
-  { id: "33333333-3333-4333-8333-333333333333", name: "周宁（测试）" },
+  { id: "11111111-1111-4111-8111-111111111111", name: "林晓（管理者）" },
+  { id: "22222222-2222-4222-8222-222222222222", name: "陈晨" },
+  { id: "33333333-3333-4333-8333-333333333333", name: "周宁" },
 ];
 let demoUserId = demoPeople[0].id;
 export function setDemoUser(id: string) {

@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { dueLabel, handoffChain, lastRejection, myLists, rowActions, sourceOf, taskActions, teamLists, whereNow } from "./logic";
+import {
+  chainNodes,
+  dueLabel,
+  firstTask,
+  handoffChain,
+  lastRejection,
+  myLists,
+  sourceOf,
+  taskActions,
+  teamGroups,
+  whereNow,
+} from "./logic";
 import type { Member, TaskActivity, TeamTask } from "./types";
 
 const task = (patch: Partial<TeamTask> = {}): TeamTask => ({
@@ -61,10 +72,33 @@ describe("我的页面分组", () => {
     expect(myLists(tasks, [], "me").mine.map((t) => t.id)).toEqual(["late", "soon", "none"]);
   });
 
-  it("全队视图分未完成和已完成", () => {
-    const lists = teamLists([task({ id: "a" }), task({ id: "b", status: "done" })]);
-    expect(lists.open.map((t) => t.id)).toEqual(["a"]);
-    expect(lists.done.map((t) => t.id)).toEqual(["b"]);
+  it("全队先列交接中的，再按人分组，已完成单独放", () => {
+    const groups = teamGroups(
+      [
+        task({ id: "moving", pending_owner_id: "back", handoff_by: "me" }),
+        task({ id: "mine" }),
+        task({ id: "theirs", owner_id: "back" }),
+        task({ id: "finished", status: "done" }),
+      ],
+      members,
+    );
+    expect(groups.moving.map((t) => t.id)).toEqual(["moving"]);
+    expect(groups.holders.map((h) => [h.member.user_id, h.tasks.map((t) => t.id)])).toEqual([
+      ["me", ["mine"]],
+      ["back", ["theirs"]],
+    ]);
+    expect(groups.done.map((t) => t.id)).toEqual(["finished"]);
+  });
+
+  it("默认打开最该处理的：先等我接手，再我手上的，再交出去的", () => {
+    const incoming = task({ id: "incoming", owner_id: "back", created_by: "back", pending_owner_id: "me" });
+    const mine = task({ id: "mine" });
+    const sent = task({ id: "sent", owner_id: "back" });
+    expect(firstTask([sent, mine, incoming], [], "me", false)?.id).toBe("incoming");
+    expect(firstTask([sent, mine], [], "me", false)?.id).toBe("mine");
+    expect(firstTask([sent], [], "me", false)?.id).toBe("sent");
+    expect(firstTask([], [], "me", false)).toBeNull();
+    expect(firstTask([task({ id: "late", due_date: "2026-11-01" }), mine], [], "boss", true)?.id).toBe("late");
   });
 });
 
@@ -101,6 +135,21 @@ describe("流转显示", () => {
     expect(handoffChain(task({ owner_id: "test" }), history)).toEqual(["me", "back", "test"]);
   });
 
+  it("交接链标出每个人的状态", () => {
+    const moved = [activity("me", "created"), activity("back", "accepted", { from: "me" })];
+    expect(chainNodes(task({ owner_id: "back" }), moved)).toEqual([
+      { id: "me", state: "past" },
+      { id: "back", state: "now" },
+    ]);
+    expect(chainNodes(task({ owner_id: "back", pending_owner_id: "test" }), moved)).toEqual([
+      { id: "me", state: "past" },
+      { id: "back", state: "past" },
+      { id: "test", state: "wait" },
+    ]);
+    expect(chainNodes(task({ owner_id: "back", status: "done" }), moved)[1]).toEqual({ id: "back", state: "done" });
+    expect(chainNodes(task(), [])).toEqual([{ id: "me", state: "now" }]);
+  });
+
   it("退回提示只在退回是最后一个动作时出现", () => {
     const rejected = activity("back", "rejected", { note: "排满了" });
     expect(lastRejection([activity("me", "handoff"), rejected])).toBe(rejected);
@@ -125,14 +174,6 @@ describe("按钮和数据库权限一致", () => {
     expect(actions(task(), "me", "member", [activity("me", "handoff")])).toEqual(["complete", "handoff"]);
     expect(actions(task(), "boss", "admin")).toEqual(["handoff"]);
     expect(actions(task(), "stranger")).toEqual([]);
-  });
-
-  it("列表行只放自己手上的操作；管理者代为交接、删除、重新打开都在详情里", () => {
-    const row = (t: TeamTask, user = "me", role: Member["role"] = "member") => rowActions(t, [], user, role);
-    expect(row(task())).toEqual(["complete", "handoff"]);
-    expect(row(task({ owner_id: "back", created_by: "back" }), "boss", "admin")).toEqual([]);
-    expect(row(task({ pending_owner_id: "back", handoff_by: "me" }))).toEqual(["withdraw"]);
-    expect(row(task({ status: "done" }))).toEqual([]);
   });
 
   it("只有自己写的、没交接过的才能删", () => {

@@ -3,7 +3,6 @@ import { fetchTeamSnapshot, teamCommand } from "./client";
 import type { Execute, TeamSnapshot } from "./types";
 
 const POLL_MS = 15000;
-const NOTICE_MS = 2500;
 
 // 团队数据的读取和写入：写完立即重新读取，页面只认数据库返回的结果。
 export function useTeamData() {
@@ -39,33 +38,30 @@ export function useTeamData() {
     };
   }, [load]);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), NOTICE_MS);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-
   const workspace = data?.workspaces[0];
 
-  const execute: Execute = async (action, payload) => {
-    if (mutationLock.current) return false;
+  const execute: Execute = async (action, payload, success = "已保存") => {
+    if (mutationLock.current) return null;
     mutationLock.current = true;
     setBusy(true);
     setError("");
+    setNotice("");
     try {
-      await teamCommand(action, { workspaceId: workspace?.id, ...payload });
-      if (!mounted.current) return true;
-      setNotice("已保存");
+      const result = (await teamCommand(action, { workspaceId: workspace?.id, ...payload })) ?? {};
+      if (!mounted.current) return result;
+      setNotice(success);
       await load();
-      return true;
+      return result;
     } catch (cause) {
       if (mounted.current) setError(cause instanceof Error ? cause.message : "操作失败，请重试");
-      return false;
+      return null;
     } finally {
       mutationLock.current = false;
       if (mounted.current) setBusy(false);
     }
   };
 
-  return { data, workspace, busy, error, notice, execute, reload: load };
+  const clearNotice = useCallback(() => setNotice(""), []);
+
+  return { data, workspace, busy, error, notice, clearNotice, execute, reload: load };
 }
