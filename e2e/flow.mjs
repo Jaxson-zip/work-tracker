@@ -205,6 +205,21 @@ async function acceptFromCard(page, h) {
   ok((await h.flow.locator("h1").innerText()) === "订单列表接口联调", "从卡片接手后，右边切到刚接手的这一条");
 }
 
+async function slowNetwork(browser) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  await page.route("**/*.wasm", async (route) => {
+    await new Promise((done) => setTimeout(done, 10000));
+    await route.continue();
+  });
+  await page.goto(BASE);
+  await page.getByText("网络有点慢").waitFor({ timeout: 20000 });
+  ok(true, "网络慢时如实提示还在下载，不让人以为打不开");
+  await page.locator(".new-task").waitFor({ timeout: 60000 });
+  ok(true, "慢网络下等一会儿也能正常打开");
+  await context.close();
+}
+
 async function phone(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 800 } });
   const page = await context.newPage();
@@ -245,6 +260,7 @@ try {
   await page.locator(".new-task").waitFor({ timeout: 60000 });
   ok(await page.getByText("整理下周发布清单").isVisible(), "演示版刷新后恢复初始数据");
   await acceptFromCard(page, h);
+  await slowNetwork(browser);
   await phone(browser);
   ok(errors.length === 0, `页面没有运行错误 ${errors.join(" | ")}`);
   console.log(`\n全部通过：${passed} 项`);

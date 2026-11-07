@@ -1,5 +1,5 @@
 import type { Session } from "@supabase/supabase-js";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getToday } from "../dateUtils";
 import { signOut } from "../supabase";
 import { demoEnabled, demoPeople } from "./client";
@@ -51,6 +51,17 @@ function ViewTabs({ team, onChange }: { team: boolean; onChange: (team: boolean)
       </button>
     </nav>
   );
+}
+
+// 演示版第一次要下载约 5MB 的内存数据库。网络慢时要如实告诉对方，不然看起来像打不开。
+const SLOW_MS = 8000;
+function DemoLoading() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSlow(true), SLOW_MS);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return slow ? "网络有点慢，还在下载演示用的数据库（约 5MB），可能要一两分钟，请不要关闭页面。" : "正在准备演示数据，第一次打开要等几秒…";
 }
 
 // 演示版不真发群消息，把这一步会发的内容显示出来。固定在角落，不挤动页面。
@@ -203,7 +214,7 @@ export default function TeamWorkbench({ session, onSwitchDemoUser }: { session: 
   if (!data) {
     return (
       <div className="splash" role={error ? "alert" : "status"}>
-        {error || (demoEnabled ? "正在准备演示数据，第一次打开要等几秒…" : "正在打开…")}
+        {error || (demoEnabled ? <DemoLoading /> : "正在打开…")}
       </div>
     );
   }
