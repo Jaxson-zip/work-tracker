@@ -55,13 +55,8 @@ export default function AuthPage({ recovery = false, onDone }: { recovery?: bool
   return (
     <main className="auth">
       <div className="auth-card">
-        <div className="brand brand-large">
-          <span className="brand-mark" aria-hidden="true">
-            进
-          </span>
-          <span>推进</span>
-        </div>
-        <p className="auth-tagline">重要的事记下来，交接有人接，到期不漏。</p>
+        <strong className="brand">推进</strong>
+        <p className="auth-tagline">工作交接，对方接手才算交出去。</p>
         <h1>{title}</h1>
         {!isSupabaseConfigured && (
           <p className="form-error" role="alert">

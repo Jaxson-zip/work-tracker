@@ -1,4 +1,4 @@
-// 浏览器端到端：在本地演示模式（真实 SQL + PGlite）里，用三个身份走完整的转交流程。
+// 浏览器端到端：在本地演示模式（真实 SQL + PGlite）里，走一遍前端 → 后端 → 测试的交接。
 // 不连接任何外部服务，不发真实消息。用法：npm run e2e（需要本机装有 Chrome 或 Edge）
 import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 
 const PORT = 5176;
 const BASE = `http://127.0.0.1:${PORT}`;
+const TITLE = "端到端-跟进退款接口";
 const dir = mkdtempSync(join(tmpdir(), "wt-e2e-"));
 const server = spawn(process.execPath, ["node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", String(PORT), "--strictPort"], {
   env: { ...process.env, VITE_WORK_TRACKER_DEMO: "1", WORK_TRACKER_DEMO_DIR: dir },
@@ -38,138 +39,134 @@ async function waitForServer() {
 
 function helpers(page) {
   const row = (title) => page.locator(".task-row", { hasText: title });
-  const group = (name) => page.getByRole("region", { name });
   return {
     row,
-    group,
+    group: (name) => page.getByRole("region", { name }),
     as: async (name) => {
-      await page.getByLabel("切换演示身份").selectOption({ label: name });
-      await page.locator(".account .avatar", { hasText: name.slice(0, 1) }).waitFor();
-      await page.locator(".nav button", { hasText: "我的事项" }).click();
-      await page.getByRole("heading", { name: "我的事项" }).waitFor();
+      const select = page.getByLabel("切换演示身份");
+      const value = await select.locator("option", { hasText: name }).getAttribute("value");
+      await Promise.all([page.waitForResponse((response) => response.url().includes("/__demo/command")), select.selectOption(value)]);
+      await page.locator(".new-task").waitFor();
     },
-    nav: (label) => page.locator(".nav button", { hasText: label }).click(),
     click: (title, label) => row(title).getByRole("button", { name: label, exact: true }).click(),
-    confirm: async (fields) => {
+    fill: async ({ person, note }) => {
       const dialog = page.locator("dialog[open]");
-      if (fields.person) await dialog.locator("select").selectOption({ label: fields.person });
-      if (fields.reason) await dialog.locator("textarea").fill(fields.reason);
+      if (person) await dialog.locator("select").selectOption({ label: person });
+      await dialog.locator("textarea").fill(note);
       await dialog.locator('button:not([type="button"])').click();
       await dialog.waitFor({ state: "detached" });
     },
   };
 }
 
-async function recordAndHandoff(page, h) {
-  const title = "端到端-下周五跟进投标文件";
-  await page.getByLabel("记一件事").fill(title);
-  await page.getByText("已从文字识别").waitFor();
+async function writeAndHand(page, h) {
+  await page.getByLabel("写一条待办").fill(`下周五${TITLE}`);
   await page.getByRole("button", { name: "记下" }).click();
-  const saved = h.row("端到端-跟进投标文件");
-  await saved.waitFor();
-  ok(/到期/.test(await saved.innerText()), "一句话记下，日期从文字里识别，标题去掉日期");
+  await h.group("我的待办").getByText(TITLE).waitFor();
+  const row = await h.row(TITLE).innerText();
+  ok(row.includes("到期") && !row.includes("下周五") && row.includes("自己写的"), "一句话写待办：日期自动识别，显示自己写的");
 
-  await h.click("端到端-跟进投标文件", "转交");
-  await h.confirm({ person: "陈晨", reason: "我要出差，请你接手" });
-  await h.row("端到端-跟进投标文件").getByText("等陈晨接收").waitFor();
-  ok((await h.group("等别人处理").innerText()).includes("端到端-跟进投标文件"), "转交后还在我这里，显示等对方接收");
-
-  await page.getByRole("button", { name: "撤回转交" }).first().waitFor();
-  ok(await h.row("端到端-跟进投标文件").getByRole("button", { name: "撤回转交" }).isVisible(), "接收前可以撤回");
+  await h.click(TITLE, "交给下一位");
+  await h.fill({ person: "陈晨", note: "退款页面做完了，需要后端提供退款接口" });
+  await h.row(TITLE).getByText("等陈晨接手").waitFor();
+  ok((await h.group("我交出去的").innerText()).includes(TITLE), "交出去后显示等对方接手");
 }
 
 async function rejectAndRetry(page, h) {
   await h.as("陈晨");
-  ok((await h.group("等我接收").innerText()).includes("我要出差，请你接手"), "接收方看到说明");
-  await h.click("端到端-跟进投标文件", "退回");
-  await h.confirm({ reason: "这周排满了" });
+  ok((await h.group("等我接手").innerText()).includes("退款页面做完了"), "接手人收到时能看到交接说明");
+  await h.click(TITLE, "退回");
+  await h.fill({ note: "字段还没定，请先确认退款状态枚举" });
   await h.as("林晓");
-  await h.group("转交被退回").getByText("这周排满了").waitFor();
-  ok(true, "退回后原负责人看到原因");
-  await h.click("端到端-跟进投标文件", "转给别人");
-  await h.confirm({ person: "陈晨", reason: "只需要周四前看一眼" });
-  await h.row("端到端-跟进投标文件").getByText("等陈晨接收").waitFor();
+  await h.group("我的待办").getByText("字段还没定").waitFor();
+  ok(true, "被退回后回到原来的人手上，并显示原因");
+  await h.click(TITLE, "交给下一位");
+  await h.fill({ person: "陈晨", note: "枚举已确认，见接口文档" });
+  await h.row(TITLE).getByText("等陈晨接手").waitFor();
 }
 
-async function acceptSubmitReview(page, h) {
+async function relayToDone(page, h) {
   await h.as("陈晨");
-  await h.click("端到端-跟进投标文件", "接收");
-  await h.row("端到端-跟进投标文件").getByRole("button", { name: "提交验收" }).waitFor();
-  ok(true, "接收后负责人变成接收方，别人交来的事要提交验收");
-  await h.click("端到端-跟进投标文件", "提交验收");
-  await h.row("端到端-跟进投标文件").getByText("等林晓验收").waitFor();
+  await h.click(TITLE, "接手");
+  await h.group("我的待办").getByText(TITLE).waitFor();
+  ok((await h.row(TITLE).innerText()).includes("林晓 交来的"), "接手后到了自己手上，显示谁交来的");
+  await h.click(TITLE, "交给下一位");
+  await h.fill({ person: "周宁", note: "接口发到测试环境了，请测试" });
 
-  await h.as("林晓");
-  await h.click("端到端-跟进投标文件", "退回修改");
-  await h.confirm({ reason: "还缺报价页" });
+  await h.as("周宁");
+  await h.click(TITLE, "接手");
+  await h.group("我的待办").getByText(TITLE).waitFor();
+  await h.click(TITLE, "完成");
+  await h.group("我的待办").getByText(TITLE).waitFor({ state: "detached" });
+  ok(true, "最后一个人完成");
+}
+
+async function everyoneSeesFlow(page, h) {
+  const openDone = async () => {
+    await page.locator("details summary", { hasText: "已完成" }).click();
+    await h.row(TITLE).locator(".task-title").click();
+    await page.locator(".timeline").waitFor();
+  };
   await h.as("陈晨");
-  await h.click("端到端-跟进投标文件", "提交验收");
-  await h.row("端到端-跟进投标文件").getByText("等林晓验收").waitFor();
-  await h.as("林晓");
-  await h.click("端到端-跟进投标文件", "验收通过");
-  await h.row("端到端-跟进投标文件").waitFor({ state: "hidden" });
-  ok(true, "验收退回后可以重新提交，通过后收进最近完成");
-
-  await page.locator("details summary", { hasText: "最近完成" }).click();
-  await h.row("端到端-跟进投标文件").locator(".task-title").click();
+  await openDone();
+  const chain = await page.getByLabel("交接链").innerText();
+  ok(chain.replace(/\s/g, "") === "林晓→陈晨→周宁", "经手的人能看到交接链");
   const timeline = await page.locator(".timeline").innerText();
   ok(
-    ["发起转交", "退回了转交", "接收了转交", "还缺报价页"].every((text) => timeline.includes(text)),
-    "详情里能看到完整经过",
+    ["写了这条待办", "退回了", "字段还没定", "枚举已确认", "接手了", "接口发到测试环境了", "完成了"].every((text) =>
+      timeline.includes(text),
+    ),
+    "点开能看到每一步和交接说明",
   );
   await page.getByRole("button", { name: "关闭" }).click();
-}
+  ok(!(await page.getByRole("navigation", { name: "查看范围" }).isVisible()), "普通成员没有全队视图");
+  ok(!(await page.getByText("登录页改版").isVisible()), "普通成员看不到和自己无关的事");
 
-async function recordsAndBulkTransfer(page, h) {
-  await h.nav("事务记录");
-  await page.getByLabel("记录一件事").fill("端到端-客户要求改合同");
-  await page.getByRole("button", { name: "记录", exact: true }).click();
-  await h.click("端到端-客户要求改合同", "生成待办");
-  await h.confirm({ person: "周宁", reason: "和法务确认条款" });
-  await h.row("端到端-客户要求改合同").getByRole("button", { name: "查看待办" }).waitFor();
-  ok(true, "事务记录可以生成待办并指派");
-
-  await h.nav("成员");
-  await page.locator(".member-row", { hasText: "陈晨" }).getByRole("button", { name: "全部转出" }).click();
-  await h.confirm({ person: "周宁", reason: "陈晨休假两周" });
-  await h.as("周宁");
-  const incoming = h.group("等我接收");
-  ok((await incoming.innerText()).includes("筹备客户培训"), "休假交接：一个人的事项一次转出");
-  await incoming.getByRole("button", { name: "全部接收" }).click();
-  await incoming.waitFor({ state: "detached" });
-  ok(await h.row("筹备客户培训").isVisible(), "全部接收后都到了接收方名下");
-}
-
-async function permissionsAndErrors(browser, page, h) {
-  await h.as("陈晨");
-  await h.nav("通知");
-  ok(await page.getByText("发送记录只有管理员能看到").isVisible(), "普通成员看不到发送记录");
-  await h.nav("全部事项");
-  ok((await page.locator(".task-row button.primary").count()) === 0, "全部事项是总览，没有操作按钮");
-
-  // 两个人同时操作：第二个人的旧版本被拒绝，看到中文提示。
   await h.as("林晓");
+  await page.getByRole("button", { name: "全队" }).click();
+  const team = await page.locator(".page").innerText();
+  ok(team.includes("用户权限接口") && team.includes("陈晨 → 周宁"), "管理者能看到全队每件事走到了谁手上");
+  ok((await page.locator(".task-row button.primary").count()) === 0, "全队视图只看不操作");
+  ok((await h.row("订单列表接口联调").innerText()).includes("等你接手"), "全队视图每一行都写明现在在谁那");
+  await h.row("订单列表接口联调").locator(".task-title").click();
+  ok((await page.locator(".drawer").innerText()).includes("陈晨 交来的"), "等我接手的待办，显示的是正在交给我的人");
+  await page.getByRole("button", { name: "关闭" }).click();
+  await h.row("用户权限接口").locator(".task-title").click();
+  ok((await page.locator(".timeline").innerText()).includes("请测试各角色的权限"), "管理者能点开和自己无关的事看流转");
+  await page.getByRole("button", { name: "关闭" }).click();
+  await page.getByRole("button", { name: "我的" }).click();
+  ok((await h.group("我交出去的").getByRole("button", { name: "交给下一位" }).count()) === 0, "交出去的事，列表里不再有交接按钮");
+}
+
+async function conflictAndTeam(browser, page, h) {
   const other = await browser.newPage();
   await other.goto(BASE);
-  await other.getByRole("heading", { name: "我的事项" }).waitFor();
-  await h.click("更新下季度产品路线图", "完成");
-  await helpers(other).row("更新下季度产品路线图").getByRole("button", { name: "完成", exact: true }).click();
+  await other.locator(".new-task").waitFor();
+  await h.click("登录页改版", "完成");
+  await h.group("我的待办").getByText("登录页改版").waitFor({ state: "detached" });
+  await helpers(other).click("登录页改版", "完成");
   await other.getByRole("alert").waitFor();
   const message = await other.getByRole("alert").innerText();
-  ok(message.includes("别人刚改过") && !/conflict/i.test(message), "并发冲突给中文提示，不露英文错误");
+  ok(message.includes("别人刚改过") && !/conflict/i.test(message), "两个人同时操作时给中文提示，不露英文错误");
   await other.close();
+
+  await page.getByRole("button", { name: "订单系统项目组" }).click();
+  const dialog = page.locator("dialog[open]");
+  await dialog.getByRole("button", { name: "生成邀请码" }).click();
+  await dialog.locator("code").first().waitFor();
+  ok((await dialog.innerText()).includes("陈晨"), "团队弹窗能看成员、生成邀请码");
+  await dialog.getByRole("button", { name: "关闭" }).click();
 }
 
 async function phone(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 800 } });
   const page = await context.newPage();
   await page.goto(BASE);
-  await page.getByRole("heading", { name: "我的事项" }).waitFor();
-  for (const label of ["我的事项", "全部事项", "事务记录", "成员", "通知"]) {
-    await page.locator(".nav button", { hasText: label }).click();
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-    ok(overflow <= 0, `手机宽度下「${label}」没有横向滚动`);
-  }
+  await page.locator(".new-task").waitFor();
+  await page.locator(".task-title").first().click();
+  await page.locator(".timeline").waitFor();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  ok(overflow <= 0, "手机宽度下没有横向滚动");
   await context.close();
 }
 
@@ -183,13 +180,13 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   page.setDefaultTimeout(10000);
   await page.goto(BASE);
-  await page.getByRole("heading", { name: "我的事项" }).waitFor({ timeout: 60000 });
+  await page.locator(".new-task").waitFor({ timeout: 60000 });
   const h = helpers(page);
-  await recordAndHandoff(page, h);
+  await writeAndHand(page, h);
   await rejectAndRetry(page, h);
-  await acceptSubmitReview(page, h);
-  await recordsAndBulkTransfer(page, h);
-  await permissionsAndErrors(browser, page, h);
+  await relayToDone(page, h);
+  await everyoneSeesFlow(page, h);
+  await conflictAndTeam(browser, page, h);
   await phone(browser);
   ok(errors.length === 0, `页面没有运行错误 ${errors.join(" | ")}`);
   console.log(`\n全部通过：${passed} 项`);

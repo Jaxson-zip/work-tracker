@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
 export function sendJson(response: VercelResponse, statusCode: number, payload: unknown): void {
@@ -12,32 +12,15 @@ export function requirePost(request: VercelRequest, response: VercelResponse): b
   return false;
 }
 
-export async function readJsonBody<T extends Record<string, unknown>>(request: VercelRequest): Promise<T> {
-  if (request.body && typeof request.body === "object" && !Buffer.isBuffer(request.body)) {
-    return request.body as T;
-  }
-
-  if (typeof request.body === "string") {
-    return JSON.parse(request.body) as T;
-  }
-
-  const chunks: Buffer[] = [];
-  for await (const chunk of request) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-  }
-
-  if (chunks.length === 0) return {} as T;
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as T;
-}
-
 export function getAuthorizationBearer(request: VercelRequest): string | null {
-  const authorization = getHeader(request, "authorization");
-  const match = authorization?.match(/^Bearer\s+(.+)$/i);
+  const value = request.headers.authorization;
+  const match = value?.match(/^Bearer\s+(.+)$/i);
   return match?.[1]?.trim() ?? null;
 }
 
-export function getHeader(request: VercelRequest, name: string): string | null {
-  const value = request.headers[name.toLowerCase()];
-  if (Array.isArray(value)) return value[0] ?? null;
-  return typeof value === "string" ? value : null;
+// 比较摘要而不是原文，这样长度不同也不会提前返回。
+export function equalSecret(actual: string | null, expected: string): boolean {
+  if (!actual) return false;
+  const digest = (value: string) => createHash("sha256").update(value).digest();
+  return timingSafeEqual(digest(actual), digest(expected));
 }

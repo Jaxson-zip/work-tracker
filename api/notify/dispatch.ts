@@ -1,8 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { equalSecret } from "../_feishu/callback.js";
 import { runDeliveryBatch } from "../_notify/delivery.js";
 import { NotifyError, type NotifyEnv, type RpcClient } from "../_notify/types.js";
-import { getAuthorizationBearer, sendJson } from "../_shared/http.js";
+import { equalSecret, getAuthorizationBearer, sendJson } from "../_shared/http.js";
 import { getSupabaseAdmin } from "../_shared/supabaseAdmin.js";
 
 export const maxDuration = 60;

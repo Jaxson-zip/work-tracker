@@ -23,6 +23,11 @@ async function service(sql: string, params: unknown[] = []): Promise<any[]> {
   await db.exec("set role service_role");
   return (await db.query(sql, params)).rows as any[];
 }
+// 用数据库所有者身份检查队列，页面和普通用户都读不到这张表。
+async function outbox(workspaceId: string): Promise<any[]> {
+  await db.exec("reset role");
+  return (await db.query("select * from public.wt_outbox where workspace_id=$1 order by created_at", [workspaceId])).rows as any[];
+}
 // 和 Supabase rpc 一样按参数名调用，但走真实 SQL。
 const rpcClient: RpcClient = {
   async rpc(name, args = {}) {
@@ -43,7 +48,7 @@ const rpcClient: RpcClient = {
 async function team() {
   const w = (await command(OWNER, "create_workspace", { name: "Team" })).id as string;
   for (const index of [ZHANG, LI]) {
-    const invite = await command(OWNER, "invite", { workspaceId: w, role: "member" });
+    const invite = await command(OWNER, "invite", { workspaceId: w });
     await command(index, "join_workspace", { code: invite.code });
   }
   return w;
@@ -75,18 +80,18 @@ afterAll(async () => {
 });
 
 describe("通知队列", () => {
-  test("转交消息带具体内容、@ 接收方手机号和系统链接", async () => {
+  test("交接消息带说明、@ 接手人的手机号和系统链接", async () => {
     await clearQueue();
     const w = await team();
     await command(LI, "update_profile", { displayName: "李四", mobile: "13800000002" });
     await command(ZHANG, "update_profile", { displayName: "张三" });
-    const task = await command(ZHANG, "create_task", { workspaceId: w, title: "续签合同", ownerId: users[ZHANG], dueDate: "2026-11-10" });
-    await command(ZHANG, "transfer_task", { workspaceId: w, taskId: task.id, expectedVersion: 1, ownerId: users[LI], reason: "我要休假" });
+    const task = await command(ZHANG, "create_task", { workspaceId: w, title: "接口联调", ownerId: users[ZHANG], dueDate: "2026-11-10" });
+    await command(ZHANG, "handoff_task", { workspaceId: w, taskId: task.id, expectedVersion: 1, toUserId: users[LI], note: "页面做完了" });
     const { bodies, fetchImpl } = recordingFetch();
     expect(await runDeliveryBatch(rpcClient, wecomEnv(w), { fetchImpl, now: NOW })).toMatchObject({ claimed: 1, sent: 1, failed: 0 });
     expect(bodies[0].msgtype).toBe("text");
-    expect(bodies[0].text.content).toContain("【待接收】张三 把「续签合同」转给 李四");
-    expect(bodies[0].text.content).toContain("说明：我要休假");
+    expect(bodies[0].text.content).toContain("【待接手】张三 把「接口联调」交给 李四");
+    expect(bodies[0].text.content).toContain("交接说明：页面做完了");
     expect(bodies[0].text.content).toContain("截止：2026-11-10");
     expect(bodies[0].text.content).toContain("https://tracker.example");
     expect(bodies[0].text.mentioned_mobile_list).toEqual(["13800000002"]);
@@ -103,11 +108,10 @@ describe("通知队列", () => {
       sent: 0,
       failed: 1,
     });
-    const outbox = (await command(OWNER, "snapshot", { workspaceId: w })).outbox;
-    expect(outbox[0]).toMatchObject({ status: "pending", last_error: "Delivery failed" });
-    expect(JSON.stringify(outbox)).not.toContain("test-key");
-    await db.exec("reset role");
-    await db.query("update public.wt_outbox set available_at=now()-interval '1 second' where id=$1", [outbox[0].id]);
+    const [row] = await outbox(w);
+    expect(row).toMatchObject({ status: "pending", last_error: "Delivery failed" });
+    expect(JSON.stringify(row)).not.toContain("test-key");
+    await db.query("update public.wt_outbox set available_at=now()-interval '1 second' where id=$1", [row.id]);
     const healthy = recordingFetch();
     expect(await runDeliveryBatch(rpcClient, wecomEnv(w), { fetchImpl: healthy.fetchImpl, now: NOW })).toMatchObject({
       sent: 1,
@@ -115,7 +119,7 @@ describe("通知队列", () => {
     });
   });
 
-  test("没给这个团队配 Webhook 时不会发到别的群，并显示原因", async () => {
+  test("没给这个团队配 Webhook 时不会发到别的群", async () => {
     await clearQueue();
     const w = await team();
     const other = await team();
@@ -124,7 +128,7 @@ describe("通知队列", () => {
     const result = await runDeliveryBatch(rpcClient, wecomEnv(other), { fetchImpl, now: NOW });
     expect(result).toMatchObject({ sent: 0, failed: 1 });
     expect(bodies).toEqual([]);
-    expect((await command(OWNER, "snapshot", { workspaceId: w })).outbox[0].last_error).toBe("No webhook configured for this team");
+    expect((await outbox(w))[0].last_error).toBe("No webhook configured for this team");
   });
 
   test("每日摘要：每团队一天一条，按类别列出，@ 相关的人", async () => {
@@ -135,15 +139,15 @@ describe("通知队列", () => {
     await command(ZHANG, "create_task", { workspaceId: w, title: "已逾期的事", ownerId: users[ZHANG], dueDate: "2026-11-01" });
     await command(ZHANG, "create_task", { workspaceId: w, title: "今天到期的事", ownerId: users[ZHANG], dueDate: TODAY });
     await command(ZHANG, "create_task", { workspaceId: w, title: "以后的事", ownerId: users[ZHANG], dueDate: "2030-01-01" });
+    await command(ZHANG, "create_task", { workspaceId: w, title: "等李四接手", ownerId: users[LI] });
     await db.exec("reset role");
     await db.exec("update public.wt_outbox set status='sent'");
-    await command(ZHANG, "create_task", { workspaceId: w, title: "等李四接收", ownerId: users[LI] });
     const { bodies, fetchImpl } = recordingFetch();
     const first = await runDeliveryBatch(rpcClient, wecomEnv(w), { fetchImpl, now: NOW, digest: true });
-    expect(first).toMatchObject({ enqueued: 1, sent: 2, failed: 0 });
-    const digest = bodies.find((b) => b.text.content.startsWith("【每日待办"));
+    expect(first).toMatchObject({ enqueued: 1, sent: 1, failed: 0 });
+    const digest = bodies[0];
     expect(digest.text.content).toContain("【每日待办 11-07】");
-    expect(digest.text.content).toContain("待接收（1）\n· 李四：等李四接收");
+    expect(digest.text.content).toContain("待接手（1）\n· 李四：等李四接手");
     expect(digest.text.content).toContain("已逾期（1）\n· 张三：已逾期的事");
     expect(digest.text.content).toContain("今天到期（1）\n· 张三：今天到期的事");
     expect(digest.text.content).not.toContain("以后的事");
@@ -167,11 +171,10 @@ describe("通知队列", () => {
     expect(await runDeliveryBatch(rpcClient, wecomEnv(w), { fetchImpl, now: NOW })).toMatchObject({ enqueued: 0, claimed: 0 });
     await service("select public.wt_enqueue_digest($1)", ["2026-11-06"]);
     expect(await runDeliveryBatch(rpcClient, wecomEnv(w), { fetchImpl, now: NOW })).toMatchObject({ claimed: 0 });
-    const outbox = (await command(OWNER, "snapshot", { workspaceId: w })).outbox;
-    expect(outbox.every((x: any) => x.status === "cancelled")).toBe(true);
+    expect((await outbox(w)).every((x: any) => x.status === "cancelled")).toBe(true);
   });
 
-  test("认领有租约，令牌不对不能回写，超过重试上限后标记失败，管理员可重新排队", async () => {
+  test("认领有租约，令牌不对不能回写，超过重试上限后标记失败，管理者可重发", async () => {
     await clearQueue();
     const w = await team();
     await command(ZHANG, "create_task", { workspaceId: w, title: "租约", ownerId: users[LI] });
@@ -190,10 +193,10 @@ describe("通知队列", () => {
       expect(next.attempts).toBe(attempt);
       await service("select public.wt_finish_notification($1,$2,$3)", [next.id, next.claim_token, "boom"]);
     }
-    const failed = (await command(OWNER, "snapshot", { workspaceId: w })).outbox[0];
-    expect(failed.status).toBe("failed");
-    await expect(command(LI, "retry_notification", { workspaceId: w, notificationId: failed.id })).rejects.toThrow(/Forbidden/);
-    await command(OWNER, "retry_notification", { workspaceId: w, notificationId: failed.id });
+    expect((await command(OWNER, "snapshot", { workspaceId: w })).failed_notifications).toBe(1);
+    expect((await command(LI, "snapshot", { workspaceId: w })).failed_notifications).toBe(0);
+    await expect(command(LI, "retry_notifications", { workspaceId: w })).rejects.toThrow(/Forbidden/);
+    expect(await command(OWNER, "retry_notifications", { workspaceId: w })).toEqual({ count: 1 });
     expect(await claim()).toHaveLength(1);
   });
 

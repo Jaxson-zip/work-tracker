@@ -1,73 +1,18 @@
--- Only the server-side, signature-verifying Feishu receiver may call ingress.
-create function public.wt_ingest_feishu(p_event_id text,p_open_id text,p_payload jsonb) returns jsonb
-language plpgsql security definer set search_path=pg_catalog,public as $$
-declare
-  code_row public.wt_feishu_codes%rowtype; binding public.wt_feishu_bindings%rowtype;
-  prior public.wt_feishu_events%rowtype; result jsonb; v_action text;
-begin
-  if p_event_id is null or btrim(p_event_id)='' or length(p_event_id)>200 or p_open_id is null or btrim(p_open_id)='' or length(p_open_id)>200 then raise exception 'Invalid event identity'; end if;
-  perform pg_advisory_xact_lock(hashtextextended(p_event_id,0));
-  perform pg_advisory_xact_lock(hashtextextended('feishu-open:' || p_open_id,0));
-  select * into prior from public.wt_feishu_events where event_id=p_event_id;
-  if prior.event_id is not null then
-    if prior.open_id<>p_open_id then raise exception 'Event identity conflict'; end if;
-    return prior.result;
-  end if;
-  if jsonb_typeof(p_payload) is distinct from 'object' then raise exception 'Invalid payload'; end if;
-  v_action:=public.wt_text(p_payload,'action',20,true);
-  if v_action not in ('bind','record','task') then raise exception 'Unknown Feishu action'; end if;
-  if v_action='bind' then
-    select * into code_row from public.wt_feishu_codes where code=public.wt_text(p_payload,'code',100,true);
-    if code_row.code is null then raise exception 'Invalid binding code'; end if;
-    perform 1 from public.wt_workspaces where id=code_row.workspace_id for update;
-    select * into code_row from public.wt_feishu_codes where code=code_row.code for update;
-    if code_row.code is null or code_row.used_at is not null or code_row.expires_at<=now() then raise exception 'Invalid or expired binding code'; end if;
-    if not exists(select 1 from public.wt_members where workspace_id=code_row.workspace_id and user_id=code_row.user_id) then raise exception 'Binding member no longer active'; end if;
-    delete from public.wt_feishu_bindings where workspace_id=code_row.workspace_id and user_id=code_row.user_id;
-    insert into public.wt_feishu_bindings(open_id,workspace_id,user_id) values(p_open_id,code_row.workspace_id,code_row.user_id)
-      on conflict(open_id) do update set workspace_id=excluded.workspace_id,user_id=excluded.user_id;
-    update public.wt_feishu_codes set used_at=now() where code=code_row.code;
-    result:=jsonb_build_object('bound',true,'workspace_id',code_row.workspace_id);
-  else
-    select * into binding from public.wt_feishu_bindings where open_id=p_open_id;
-    if binding.open_id is not null then
-      perform 1 from public.wt_workspaces where id=binding.workspace_id for update;
-      select * into binding from public.wt_feishu_bindings where open_id=p_open_id;
-    end if;
-    if binding.open_id is null or not exists(select 1 from public.wt_members where workspace_id=binding.workspace_id and user_id=binding.user_id) then
-      -- An ignored valid event is a terminal receipt too: binding later must
-      -- never turn an old delivery into a new task or record.
-      result:=jsonb_build_object('ignored',true,'reason','unbound');
-    elsif v_action='record' then
-      result:=public.wt_insert_record(binding.workspace_id,binding.user_id,p_payload,'feishu');
-    else
-      result:=public.wt_insert_task(binding.workspace_id,binding.user_id,p_payload || jsonb_build_object('ownerId',binding.user_id));
-    end if;
-  end if;
-  insert into public.wt_feishu_events(event_id,open_id,result) values(p_event_id,p_open_id,result);
-  return result;
-end $$;
-revoke all on function public.wt_ingest_feishu(text,text,jsonb) from public,anon,authenticated,service_role;
-grant execute on function public.wt_ingest_feishu(text,text,jsonb) to service_role;
-
 -- 每个团队每天一条摘要。日期由调用方按业务时区计算，数据库时区不参与判断。
 create function public.wt_enqueue_digest(p_today date) returns jsonb
 language plpgsql security definer set search_path=pg_catalog,public as $$
 declare w record; v_sections text; v_mentions jsonb; n integer:=0; inserted integer;
 begin
   if p_today is null then raise exception 'Date required'; end if;
-  for w in select distinct workspace_id as id from public.wt_tasks where status not in ('done','cancelled') loop
+  for w in select distinct workspace_id as id from public.wt_tasks where status='open' loop
     with hits as (
       select s.ord,s.label,s.person,public.wt_name(s.person) || '：' || t.title as line
       from public.wt_tasks t cross join lateral (values
-        (1,'待接收',t.pending_owner_id is not null,t.pending_owner_id),
-        (2,'转交被退回',t.returned_to is not null,t.returned_to),
-        (3,'已逾期',t.due_date<p_today,t.owner_id),
-        (4,'今天到期',t.due_date=p_today,t.owner_id),
-        (5,'今天要跟进',t.follow_up_date<=p_today,t.owner_id),
-        (6,'待验收',t.status='review',t.created_by)
+        (1,'待接手',t.pending_owner_id is not null,t.pending_owner_id),
+        (2,'已逾期',t.due_date<p_today,t.owner_id),
+        (3,'今天到期',t.due_date=p_today,t.owner_id)
       ) s(ord,label,hit,person)
-      where t.workspace_id=w.id and t.status not in ('done','cancelled') and s.hit
+      where t.workspace_id=w.id and t.status='open' and s.hit
     ), numbered as (
       select *,row_number() over (partition by ord order by line) rn,count(*) over (partition by ord) total from hits
     ), sections as (
