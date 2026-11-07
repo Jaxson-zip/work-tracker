@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Todo WeChat iLink message poll every 15 seconds
+
+[Timer]
+OnBootSec=20s
+OnUnitActiveSec=15s
+AccuracySec=5s
+Persistent=true
+Unit=todo-ilink-poller.service
+
+[Install]
+WantedBy=timers.target

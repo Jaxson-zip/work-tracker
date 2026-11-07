@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Todo WeChat iLink reminder scan every 5 seconds
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Persistent=true
+Unit=todo-ilink-reminders.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Todo WeChat iLink reminder scan
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/to_do
+EnvironmentFile=/etc/todo-openclaw.env
+Environment=TODO_ILINK_REMINDERS_ONLY=1
+ExecStart=/usr/bin/node /opt/to_do/server/openclaw/ilink-worker.mjs

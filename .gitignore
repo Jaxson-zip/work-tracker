@@ -1,0 +1,28 @@
+node_modules/
+dist/
+
+# Local env files. Keep .env.example tracked.
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and local tool output
+*.log
+.gstack/
+.worktrees/
+
+# TypeScript/Vite build cache
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+server/openclaw/api-runtime/
+
+# Local QA screenshots generated in the project root
+/*.png
+.vercel

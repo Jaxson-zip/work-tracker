@@ -1,0 +1,15 @@
+[Unit]
+Description=Todo local bot API for OpenClaw
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/to_do
+EnvironmentFile=/etc/todo-openclaw.env
+ExecStart=/usr/bin/node /opt/to_do/server/openclaw/bot-api-server.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

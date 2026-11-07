@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.api.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": false,
+    "emitDeclarationOnly": false,
+    "outDir": "server/openclaw/api-runtime"
+  },
+  "include": ["api/**/*.ts"]
+}

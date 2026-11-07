@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Todo WeChat reminder scan every minute
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=10s
+Persistent=true
+Unit=todo-openclaw-reminders.service
+
+[Install]
+WantedBy=timers.target
