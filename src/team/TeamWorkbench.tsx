@@ -61,7 +61,7 @@ function DemoLoading() {
     const timer = window.setTimeout(() => setSlow(true), SLOW_MS);
     return () => window.clearTimeout(timer);
   }, []);
-  return slow ? "网络有点慢，还在下载演示用的数据库（约 5MB），可能要一两分钟，请不要关闭页面。" : "正在准备演示数据，第一次打开要等几秒…";
+  return slow ? "网络有点慢，还在下载演示用的数据库（约 5MB），可能要几分钟，请不要关闭页面。" : "正在准备演示数据，第一次打开要等几秒…";
 }
 
 // 演示版不真发群消息，把这一步会发的内容显示出来。固定在角落，不挤动页面。

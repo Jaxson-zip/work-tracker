@@ -205,6 +205,15 @@ async function acceptFromCard(page, h) {
   ok((await h.flow.locator("h1").innerText()) === "订单列表接口联调", "从卡片接手后，右边切到刚接手的这一条");
 }
 
+// 第一次打开要下载数据库。线上的速度取决于网络，所以放宽等待，并把实际耗时打出来。
+const LOAD_MS = process.env.E2E_URL ? 240000 : 60000;
+async function openApp(page, label, go = () => page.goto(BASE, { timeout: LOAD_MS })) {
+  const started = Date.now();
+  await go();
+  await page.locator(".new-task").waitFor({ timeout: LOAD_MS });
+  console.log(`  · ${label}：${((Date.now() - started) / 1000).toFixed(1)} 秒`);
+}
+
 async function slowNetwork(browser) {
   const context = await browser.newContext();
   const page = await context.newPage();
@@ -212,10 +221,10 @@ async function slowNetwork(browser) {
     await new Promise((done) => setTimeout(done, 10000));
     await route.continue();
   });
-  await page.goto(BASE);
-  await page.getByText("网络有点慢").waitFor({ timeout: 20000 });
+  const opening = openApp(page, "慢网络下打开");
+  await page.getByText("网络有点慢").waitFor({ timeout: LOAD_MS });
   ok(true, "网络慢时如实提示还在下载，不让人以为打不开");
-  await page.locator(".new-task").waitFor({ timeout: 60000 });
+  await opening;
   ok(true, "慢网络下等一会儿也能正常打开");
   await context.close();
 }
@@ -223,8 +232,7 @@ async function slowNetwork(browser) {
 async function phone(browser) {
   const context = await browser.newContext({ viewport: { width: 390, height: 800 } });
   const page = await context.newPage();
-  await page.goto(BASE);
-  await page.locator(".new-task").waitFor();
+  await openApp(page, "手机上打开");
   const h = helpers(page);
   ok(!(await h.flow.isVisible()), "手机上先看列表，流转不占地方");
   await h.open("整理下周发布清单");
@@ -247,8 +255,7 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.setDefaultTimeout(10000);
-  await page.goto(BASE);
-  await page.locator(".new-task").waitFor({ timeout: 60000 });
+  await openApp(page, "第一次打开");
   const h = helpers(page);
   ok((await page.locator(".demo-hint").count()) === 1, "演示版提示只出现一次");
   await writeAndHand(page, h);
@@ -256,8 +263,7 @@ try {
   await relayToDone(page, h);
   await everyoneSeesFlow(page, h);
   await editAndTeam(page, h);
-  await page.reload();
-  await page.locator(".new-task").waitFor({ timeout: 60000 });
+  await openApp(page, "刷新后打开", () => page.reload({ timeout: LOAD_MS }));
   ok(await page.getByText("整理下周发布清单").isVisible(), "演示版刷新后恢复初始数据");
   await acceptFromCard(page, h);
   await slowNetwork(browser);
