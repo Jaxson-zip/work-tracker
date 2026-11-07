@@ -1,10 +1,15 @@
 import type { MemoItem, MemoList } from "./types";
 
-const ITEMS_KEY = "todo-memo.items.v1";
-const LISTS_KEY = "todo-memo.lists.v1";
-const LAST_SYNC_KEY = "todo-memo.last-sync.v1";
-const FOCUS_SETTINGS_KEY = "todo-memo.focus-settings.v1";
-const APP_SETTINGS_KEY = "todo-memo.app-settings.v1";
+let accountScope = "guest";
+export function setStorageAccount(userId: string | null): void {
+  accountScope = userId ? `user:${encodeURIComponent(userId)}` : "guest";
+}
+const ITEMS_KEY = "items.v1";
+const LISTS_KEY = "lists.v1";
+const LAST_SYNC_KEY = "last-sync.v1";
+const FOCUS_SETTINGS_KEY = "focus-settings.v1";
+const APP_SETTINGS_KEY = "app-settings.v1";
+const scopedKey = (key: string) => `work-tracker.personal.${accountScope}.${key}`;
 
 export type FocusSettings = {
   focusMinutes: number;
@@ -16,7 +21,7 @@ export type AppSettings = {
 };
 
 export function loadItems(): MemoItem[] {
-  const raw = localStorage.getItem(ITEMS_KEY);
+  const raw = localStorage.getItem(scopedKey(ITEMS_KEY));
   if (!raw) return [];
 
   try {
@@ -29,11 +34,11 @@ export function loadItems(): MemoItem[] {
 }
 
 export function saveItems(items: MemoItem[]): void {
-  localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
+  localStorage.setItem(scopedKey(ITEMS_KEY), JSON.stringify(items));
 }
 
 export function loadLists(): MemoList[] {
-  const raw = localStorage.getItem(LISTS_KEY);
+  const raw = localStorage.getItem(scopedKey(LISTS_KEY));
   if (!raw) return [];
 
   try {
@@ -46,20 +51,20 @@ export function loadLists(): MemoList[] {
 }
 
 export function saveLists(lists: MemoList[]): void {
-  localStorage.setItem(LISTS_KEY, JSON.stringify(lists));
+  localStorage.setItem(scopedKey(LISTS_KEY), JSON.stringify(lists));
 }
 
 export function loadLastSync(): string | null {
-  return localStorage.getItem(LAST_SYNC_KEY);
+  return localStorage.getItem(scopedKey(LAST_SYNC_KEY));
 }
 
 export function saveLastSync(value: string): void {
-  localStorage.setItem(LAST_SYNC_KEY, value);
+  localStorage.setItem(scopedKey(LAST_SYNC_KEY), value);
 }
 
 export function loadFocusSettings(): FocusSettings {
   const fallback = { focusMinutes: 25, breakMinutes: 5 };
-  const raw = localStorage.getItem(FOCUS_SETTINGS_KEY);
+  const raw = localStorage.getItem(scopedKey(FOCUS_SETTINGS_KEY));
   if (!raw) return fallback;
 
   try {
@@ -74,12 +79,12 @@ export function loadFocusSettings(): FocusSettings {
 }
 
 export function saveFocusSettings(settings: FocusSettings): void {
-  localStorage.setItem(FOCUS_SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(scopedKey(FOCUS_SETTINGS_KEY), JSON.stringify(settings));
 }
 
 export function loadAppSettings(): AppSettings {
   const fallback: AppSettings = { defaultListId: null };
-  const raw = localStorage.getItem(APP_SETTINGS_KEY);
+  const raw = localStorage.getItem(scopedKey(APP_SETTINGS_KEY));
   if (!raw) return fallback;
 
   try {
@@ -93,7 +98,7 @@ export function loadAppSettings(): AppSettings {
 }
 
 export function saveAppSettings(settings: AppSettings): void {
-  localStorage.setItem(APP_SETTINGS_KEY, JSON.stringify(settings));
+  localStorage.setItem(scopedKey(APP_SETTINGS_KEY), JSON.stringify(settings));
 }
 
 export function createId(): string {
@@ -176,3 +181,4 @@ function normalizeTimerMinutes(value: unknown, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.min(180, Math.max(1, Math.round(value)));
 }
+

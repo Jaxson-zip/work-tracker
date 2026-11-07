@@ -1,5 +1,5 @@
-const CACHE_NAME = "todo-memo-v5";
-const APP_SHELL = ["/manifest.webmanifest", "/icon.svg", "/icon-180.png", "/icon-192.png", "/icon-512.png"];
+const CACHE_NAME = "work-tracker-v1";
+const APP_SHELL = ["/index.html", "/manifest.webmanifest", "/icon.svg", "/icon-180.png", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
@@ -20,6 +20,7 @@ self.addEventListener("fetch", (event) => {
 
   const url = new URL(event.request.url);
   const isSameOrigin = url.origin === self.location.origin;
+  if (!isSameOrigin || url.pathname.startsWith("/api/") || url.pathname.startsWith("/__demo/")) return;
   const isBuildAsset = isSameOrigin && url.pathname.startsWith("/assets/");
   const isNavigation = event.request.mode === "navigate";
 
@@ -44,3 +45,4 @@ self.addEventListener("fetch", (event) => {
       .catch(() => caches.match(event.request).then((cached) => cached || caches.match("/")))
   );
 });
+

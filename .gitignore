@@ -26,3 +26,4 @@ server/openclaw/api-runtime/
 # Local QA screenshots generated in the project root
 /*.png
 .vercel
+.demo-data/

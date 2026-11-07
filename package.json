@@ -1,5 +1,5 @@
 {
-  "name": "todo-memo-pwa",
+  "name": "work-tracker",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,7 +11,8 @@
     "bot:ilink:poll": "node server/openclaw/ilink-worker.mjs",
     "bot:openclaw:reminders": "node server/openclaw/reminder-worker.mjs",
     "test": "vitest run",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview --host 0.0.0.0",
+    "demo": "node server/demo/start.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",

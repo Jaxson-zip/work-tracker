@@ -92,7 +92,7 @@ const matrixQuadrants: Array<{ id: MatrixQuadrant; title: string; hint: string; 
   { id: "later", title: "不紧急不重要", hint: "延后或删除", rule: "低优先级" },
 ];
 
-export default function App() {
+export default function App({ initialSession = null }: { initialSession?: Session | null }) {
   const initialFocusSettings = useMemo(() => loadFocusSettings(), []);
   const initialAppSettings = useMemo(() => loadAppSettings(), []);
   const [lists, setLists] = useState<MemoList[]>(() => initialLists());
@@ -108,7 +108,7 @@ export default function App() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [editingListId, setEditingListId] = useState<string | null>(null);
   const [listNameDraft, setListNameDraft] = useState("");
-  const [session, setSession] = useState<Session | null>(null);
+  const [session, setSession] = useState<Session | null>(initialSession);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -159,6 +159,11 @@ export default function App() {
   const inFlightSyncSignatureRef = useRef("");
   const lastSyncedSignatureRef = useRef("");
   const notifiedReminderRef = useRef<Set<string>>(new Set());
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; sessionRef.current = null; };
+  }, []);
 
   useEffect(() => {
     latestItemsRef.current = items;
@@ -1079,6 +1084,7 @@ export default function App() {
     const startedWithSignature = snapshot?.signature ?? syncSignature(itemsToSync, listsToSync);
     const startedWithMutationVersion = snapshot?.mutationVersion ?? localMutationVersionRef.current;
     const isStaleSync = () =>
+      !mountedRef.current || sessionRef.current?.user.id !== currentSession.user.id ||
       localMutationVersionRef.current !== startedWithMutationVersion ||
       syncSignature(latestItemsRef.current, latestListsRef.current) !== startedWithSignature;
     inFlightSyncSignatureRef.current = startedWithSignature;
@@ -1089,6 +1095,7 @@ export default function App() {
       const merged = await syncWithCloud(itemsToSync, listsToSync, currentSession.user, {
         shouldAbort: isStaleSync,
       });
+      if (!mountedRef.current || sessionRef.current?.user.id !== currentSession.user.id) return;
       if (merged.aborted || isStaleSync()) {
         queuedSyncRef.current = true;
         queuedSyncSnapshotRef.current = {

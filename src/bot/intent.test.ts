@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseBotIntent } from "./intent";
 
-const baseDate = new Date("2026-06-04T08:00:00+08:00");
+const baseDate = new Date("2026-06-04T08:00:00");
 
 describe("parseBotIntent", () => {
   it("parses bind commands", () => {
@@ -90,8 +90,8 @@ describe("parseBotIntent", () => {
     expect(intent.title).toBe("交作业");
     expect(intent.repeatRule).toBe("none");
     expect(intent.dueDate).toBe("2026-06-05");
-    expect(new Date(intent.reminderAt ?? "").getTime()).toBe(new Date("2026-06-05T02:00:00.000Z").getTime());
-    expect(new Date(intent.eventAt ?? "").getTime()).toBe(new Date("2026-06-05T02:00:00.000Z").getTime());
+    expect(new Date(intent.reminderAt ?? "").getTime()).toBe(new Date("2026-06-05T10:00:00").getTime());
+    expect(new Date(intent.eventAt ?? "").getTime()).toBe(new Date("2026-06-05T10:00:00").getTime());
   });
 
   it("cleans assistant-style reminder prefixes from task titles", () => {
@@ -120,8 +120,8 @@ describe("parseBotIntent", () => {
     if (intent.type !== "createTask") throw new Error("expected createTask");
     expect(intent.title).toBe("交作业");
     expect(intent.dueDate).toBe("2026-06-05");
-    expect(new Date(intent.reminderAt ?? "").getTime()).toBe(new Date("2026-06-05T01:30:00.000Z").getTime());
-    expect(new Date(intent.eventAt ?? "").getTime()).toBe(new Date("2026-06-05T02:00:00.000Z").getTime());
+    expect(new Date(intent.reminderAt ?? "").getTime()).toBe(new Date("2026-06-05T09:30:00").getTime());
+    expect(new Date(intent.eventAt ?? "").getTime()).toBe(new Date("2026-06-05T10:00:00").getTime());
   });
 
   it("splits several scheduled tasks from one message", () => {
@@ -146,3 +146,4 @@ describe("parseBotIntent", () => {
     });
   });
 });
+
