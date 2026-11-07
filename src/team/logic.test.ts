@@ -136,6 +136,11 @@ describe("流转显示", () => {
     expect(sourceOf(relayed, [activity("me", "accepted", { from: "back" })], members, "me")).toBe("后端 交来的");
   });
 
+  it("管理者看别人写的事，不显示“自己写的”", () => {
+    const others = task({ created_by: "back", owner_id: "back", pending_owner_id: "test", handoff_by: "back" });
+    expect(sourceOf(others, [activity("back", "created")], members, "me")).toBe("后端 写的");
+  });
+
   it("交接链只算真正接手的人，退回和撤回不算", () => {
     const history = [
       activity("me", "created"),

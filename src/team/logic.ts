@@ -76,7 +76,7 @@ export function sourceOf(task: TeamTask, history: TaskActivity[], members: Membe
   if (task.pending_owner_id === userId && task.handoff_by) return `${memberName(members, task.handoff_by)} 交来的`;
   const last = [...history].reverse().find((a) => a.action === "accepted" && a.actor_id === task.owner_id);
   if (last) return `${memberName(members, last.detail.from)} 交来的`;
-  if (task.created_by === task.owner_id) return "自己写的";
+  if (task.created_by === userId && task.owner_id === userId) return "自己写的";
   return `${memberName(members, task.created_by)} 写的`;
 }
 
