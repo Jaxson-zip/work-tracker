@@ -13,5 +13,5 @@
     "noEmit": true,
     "types": ["node"]
   },
-  "include": ["api/**/*.ts", "src/bot/**/*.ts", "src/taskInputParser.ts", "src/dateUtils.ts", "src/types.ts"]
+  "include": ["api/**/*.ts", "src/taskInputParser.ts", "src/dateUtils.ts"]
 }

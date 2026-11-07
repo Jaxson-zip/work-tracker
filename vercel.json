@@ -20,21 +20,18 @@
           "value": "no-store, max-age=0"
         }
       ]
-    },
-    {
-      "source": "/sw.js",
-      "headers": [
-        {
-          "key": "Cache-Control",
-          "value": "no-store, max-age=0"
-        }
-      ]
     }
   ],
   "rewrites": [
     {
       "source": "/(.*)",
       "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/notify/dispatch",
+      "schedule": "5 1 * * *"
     }
   ]
 }

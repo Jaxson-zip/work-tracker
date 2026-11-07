@@ -8,8 +8,14 @@ describe("explicit local demo using real team SQL", () => {
       expect(snapshot.members).toHaveLength(3);
       const workspaceId = snapshot.workspaces[0].id;
       const task = await demo.command(demoUsers[0].id, "create_task", { workspaceId, title: "演示闭环", ownerId: demoUsers[1].id });
-      await expect(demo.command(demoUsers[0].id, "transition_task", { workspaceId, taskId: task.id, expectedVersion: 1, status: "in_progress" })).resolves.toMatchObject({ status: "in_progress" });
+      expect(task.pending_owner_id).toBe(demoUsers[1].id);
+      await expect(demo.command(demoUsers[1].id, "accept_transfer", { workspaceId, taskId: task.id })).resolves.toMatchObject({
+        owner_id: demoUsers[1].id,
+        status: "in_progress",
+      });
       await expect(demo.command("unknown-user", "snapshot", {})).rejects.toThrow(/Unknown demo identity/);
-    } finally { await demo.close(); }
+    } finally {
+      await demo.close();
+    }
   }, 60000);
 });

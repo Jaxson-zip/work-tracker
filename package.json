@@ -6,29 +6,26 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && tsc -p tsconfig.api.json && vite build",
-    "bot:build-api-runtime": "tsc -p tsconfig.api.runtime.json",
-    "bot:openclaw:api": "node server/openclaw/bot-api-server.mjs",
-    "bot:ilink:poll": "node server/openclaw/ilink-worker.mjs",
-    "bot:openclaw:reminders": "node server/openclaw/reminder-worker.mjs",
     "test": "vitest run",
     "preview": "vite preview --host 0.0.0.0",
-    "demo": "node server/demo/start.mjs"
+    "demo": "node server/demo/start.mjs",
+    "e2e": "node e2e/flow.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4",
     "chrono-node": "^2.9.0",
-    "qrcode": "^1.5.4",
+    "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.15",
     "@types/node": "^25.9.1",
-    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",
     "@vercel/node": "^5.8.8",
     "@vitejs/plugin-react": "^4.3.4",
+    "playwright-core": "^1.49.1",
     "typescript": "^5.8.2",
     "vite": "^6.2.3",
     "vitest": "^4.1.5"

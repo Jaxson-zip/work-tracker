@@ -21,7 +21,6 @@ Thumbs.db
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
-server/openclaw/api-runtime/
 
 # Local QA screenshots generated in the project root
 /*.png
